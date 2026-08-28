@@ -5,6 +5,7 @@ type Defender = {
   mesh: THREE.Group
   x: number
   z: number
+  runPhase: number
 }
 
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -124,29 +125,152 @@ function createField() {
   world.add(touchdown)
 }
 
-function createDefender(x: number, z: number, color: number) {
+function createStadium() {
+  const standColors = [0x24324a, 0x334155, 0x475569]
+  const seatGeometry = new THREE.BoxGeometry(2.5, 1.45, 110)
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < 5; row += 1) {
+      const seats = new THREE.Mesh(
+        seatGeometry,
+        new THREE.MeshStandardMaterial({ color: standColors[row % standColors.length], roughness: 0.8 }),
+      )
+      seats.position.set(side * (29 + row * 1.35), 0.65 + row * 0.85, -47)
+      world.add(seats)
+    }
+  }
+
+  const fanHeadGeometry = new THREE.SphereGeometry(0.16, 8, 6)
+  const fanBodyGeometry = new THREE.CylinderGeometry(0.2, 0.26, 0.52, 6)
+  const fanColors = [0xf8fafc, 0xfbbf24, 0x38bdf8, 0xf43f5e, 0x22c55e, 0xa78bfa]
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < 5; row += 1) {
+      for (let seat = 0; seat < 20; seat += 1) {
+        const fan = new THREE.Group()
+        const fanMaterial = new THREE.MeshStandardMaterial({ color: fanColors[(seat + row * 2) % fanColors.length] })
+        const head = new THREE.Mesh(fanHeadGeometry, new THREE.MeshStandardMaterial({ color: 0xf0b48a }))
+        const body = new THREE.Mesh(fanBodyGeometry, fanMaterial)
+        head.position.y = 0.72
+        body.position.y = 0.32
+        fan.add(head, body)
+        fan.position.set(
+          side * (29 + row * 1.35),
+          1.05 + row * 0.85,
+          -101 + seat * 5.5 + (row % 2) * 1.2,
+        )
+        world.add(fan)
+      }
+    }
+  }
+
+  const endStandGeometry = new THREE.BoxGeometry(64, 1.15, 2.2)
+  for (let row = 0; row < 4; row += 1) {
+    const seats = new THREE.Mesh(
+      endStandGeometry,
+      new THREE.MeshStandardMaterial({ color: standColors[(row + 1) % standColors.length], roughness: 0.8 }),
+    )
+    seats.position.set(0, 0.55 + row * 0.78, -105 - row * 1.15)
+    world.add(seats)
+  }
+
+  for (let row = 0; row < 4; row += 1) {
+    for (let seat = 0; seat < 16; seat += 1) {
+      const fan = new THREE.Group()
+      const head = new THREE.Mesh(fanHeadGeometry, new THREE.MeshStandardMaterial({ color: 0xf0b48a }))
+      const body = new THREE.Mesh(
+        fanBodyGeometry,
+        new THREE.MeshStandardMaterial({ color: fanColors[(seat * 2 + row) % fanColors.length] }),
+      )
+      head.position.y = 0.66
+      body.position.y = 0.28
+      fan.add(head, body)
+      fan.position.set(-30 + seat * 4, 1.05 + row * 0.78, -104 - row * 1.15)
+      world.add(fan)
+    }
+  }
+
+  const stadiumWall = new THREE.Mesh(
+    new THREE.BoxGeometry(78, 5, 2),
+    new THREE.MeshStandardMaterial({ color: 0x172033, roughness: 0.9 }),
+  )
+  stadiumWall.position.set(0, -1.5, -109)
+  world.add(stadiumWall)
+
+  const scoreboard = new THREE.Mesh(
+    new THREE.BoxGeometry(13, 6, 0.8),
+    new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.55 }),
+  )
+  scoreboard.position.set(0, 9, -108)
+  world.add(scoreboard)
+  const scoreboardText = labelSprite('HOME  0   AWAY  0', '#fbbf24')
+  scoreboardText.position.set(0, 9, -107.5)
+  scoreboardText.scale.set(8, 1.6, 1)
+  world.add(scoreboardText)
+
+  const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.7, roughness: 0.35 })
+  const lampMaterial = new THREE.MeshStandardMaterial({ color: 0xfff7cc, emissive: 0xffd166, emissiveIntensity: 2.5 })
+  for (const x of [-35, 35]) {
+    for (const z of [-18, -76]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 13, 10), poleMaterial)
+      pole.position.set(x, 6.5, z)
+      world.add(pole)
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.45, 0.8), lampMaterial)
+      lamp.position.set(x, 13.15, z)
+      world.add(lamp)
+    }
+  }
+}
+
+function createDefender(x: number, z: number, color: number, number: number) {
   const group = new THREE.Group()
   const uniform = new THREE.MeshStandardMaterial({ color })
   const dark = new THREE.MeshStandardMaterial({ color: 0x111827 })
+  const padMaterial = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.75 })
   const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.7, 0.75), uniform)
   torso.position.y = 1.25
   group.add(torso)
+  const shoulderPads = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), padMaterial)
+  shoulderPads.scale.set(0.88, 0.28, 0.5)
+  shoulderPads.position.y = 1.95
+  group.add(shoulderPads)
+  const jerseyNumber = labelSprite(String(number))
+  jerseyNumber.position.set(0, 1.35, 0.47)
+  jerseyNumber.scale.set(1.3, 0.7, 1)
+  jerseyNumber.renderOrder = 2
+  ;(jerseyNumber.material as THREE.SpriteMaterial).depthTest = false
+  group.add(jerseyNumber)
   const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 8), dark)
+  helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.45
   group.add(helmet)
+  const facemaskBar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.72, 8), padMaterial)
+  facemaskBar.rotation.z = Math.PI / 2
+  facemaskBar.position.set(0, 2.3, 0.48)
+  group.add(facemaskBar)
+  for (const barX of [-0.3, 0.3]) {
+    const facemaskSupport = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.42, 8), padMaterial)
+    facemaskSupport.position.set(barX, 2.42, 0.48)
+    group.add(facemaskSupport)
+  }
   for (const legX of [-0.32, 0.32]) {
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 1.1, 8), dark)
     leg.position.set(legX, 0.42, 0)
     group.add(leg)
+    const kneePad = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), padMaterial)
+    kneePad.scale.set(1, 0.7, 0.55)
+    kneePad.position.set(legX, 0.42, 0.17)
+    group.add(kneePad)
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.62), dark)
+    shoe.position.set(legX, 0.06, 0.16)
+    group.add(shoe)
   }
   group.position.set(x, 0, z)
   world.add(group)
-  defenders.push({ mesh: group, x, z })
+  defenders.push({ mesh: group, x, z, runPhase: randomBetween(0, Math.PI * 2) })
 }
 
 function createPlayerView() {
   const armMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a })
-  const jersey = new THREE.MeshStandardMaterial({ color: 0x2563eb })
+  const jersey = new THREE.MeshStandardMaterial({ color: 0x8b5cf6 })
   for (const side of [-1, 1]) {
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.4, 10), armMaterial)
     arm.position.set(side * 0.62, -1.18, -1.75)
@@ -175,7 +299,7 @@ function buildDefense() {
     world.remove(defender.mesh)
   }
   for (let index = 0; index < 11; index += 1) {
-    createDefender(randomBetween(-22, 22), -18 - index * 7 - randomBetween(0, 5), index % 2 ? 0xef4444 : 0xf97316)
+    createDefender(randomBetween(-22, 22), -18 - index * 7 - randomBetween(0, 5), 0xf97316, index + 1)
   }
 }
 
@@ -208,7 +332,14 @@ function updateGame(delta: number) {
   playerView.rotation.z = -direction * 0.04
 
   for (const defender of defenders) {
-    defender.mesh.position.y = Math.sin(performance.now() * 0.008 + defender.z) * 0.04
+    defender.z += 5.2 * delta
+    defender.x += THREE.MathUtils.clamp(state.playerX - defender.x, -7, 7) * delta
+    defender.mesh.position.set(
+      defender.x,
+      Math.abs(Math.sin(performance.now() * 0.012 + defender.runPhase)) * 0.08,
+      defender.z,
+    )
+    defender.mesh.rotation.z = Math.sin(performance.now() * 0.012 + defender.runPhase) * 0.035
     const distance = defender.z - state.cameraZ
     if (distance > -1.2 && distance < 1.4 && Math.abs(defender.x - state.playerX) < 1.7) {
       state.running = false
@@ -253,6 +384,7 @@ scene.add(camera)
 camera.position.set(0, 2.35, state.cameraZ)
 camera.add(new THREE.AmbientLight(0xffffff, 0.5))
 createField()
+createStadium()
 createPlayerView()
 resetDrive()
 resize()
