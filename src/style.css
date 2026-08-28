@@ -171,7 +171,7 @@ button {
 
 .play-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(135px, 1fr));
+  grid-template-columns: repeat(4, minmax(135px, 1fr));
   gap: 10px;
   width: min(620px, 88vw);
 }

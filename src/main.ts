@@ -8,9 +8,17 @@ type Defender = {
   runPhase: number
 }
 
+type Lineman = {
+  mesh: THREE.Group
+  startX: number
+  startZ: number
+  blockPhase: number
+}
+
 type Receiver = {
   mesh: THREE.Group
   target: THREE.Mesh
+  heldFootball: THREE.Mesh
   startX: number
   breakX: number
   targetX: number
@@ -19,7 +27,18 @@ type Receiver = {
   routePhase: number
 }
 
-type PlayId = 'slant' | 'verticals' | 'flood'
+type CrowdMember = {
+  x: number
+  y: number
+  z: number
+  facing: number
+  phase: number
+  colorIndex: number
+  bodyIndex: number
+  headIndex: number
+}
+
+type PlayId = 'slant' | 'verticals' | 'flood' | 'run'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -37,17 +56,18 @@ app.innerHTML = `
       <div id="playCall" class="play-call" role="dialog" aria-label="Choose an offensive play">
         <span class="play-call-kicker">Offense · 1st &amp; 10</span>
         <h2>Pick a play</h2>
-        <p>Choose a concept, then click a glowing receiver target to throw.</p>
+        <p>Choose a pass, then click a glowing receiver target to throw — or call a run and take off yourself.</p>
         <div class="play-options">
           <button type="button" data-play="slant"><strong>Quick Slant</strong><span>Fast inside-breaking routes</span></button>
           <button type="button" data-play="verticals"><strong>Four Verticals</strong><span>Attack deep downfield</span></button>
           <button type="button" data-play="flood"><strong>Flood Right</strong><span>Three-level sideline read</span></button>
+          <button type="button" data-play="run"><strong>Run Play</strong><span>Keep the ball and find a lane</span></button>
         </div>
       </div>
     </div>
     <div class="controls-panel">
       <div class="instructions">
-        <span>Move: A / D or ← / →</span><span>Sprint: Shift or Space</span><span>Goal: reach the end zone</span>
+        <span>Move: Arrow keys or WASD</span><span>Sprint: Shift or Space</span><span>Goal: reach the end zone</span>
       </div>
       <div class="touch-controls">
         <button type="button" data-move="left">Left</button><button type="button" data-move="right">Right</button><button type="button" data-move="sprint">Sprint</button>
@@ -69,11 +89,16 @@ const camera = new THREE.PerspectiveCamera(68, 1, 0.1, 260)
 const world = new THREE.Group()
 const playerView = new THREE.Group()
 const defenders: Defender[] = []
+const linemen: Lineman[] = []
 const receivers: Receiver[] = []
+const crowdMembers: CrowdMember[] = []
+const crowdBodyMeshes: THREE.InstancedMesh[] = []
+let crowdHeadMesh: THREE.InstancedMesh | null = null
+const crowdTransform = new THREE.Object3D()
 const passRaycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
 
-const keys = { left: false, right: false, sprint: false }
+const keys = { left: false, right: false, forward: false, backward: false, sprint: false }
 const state = {
   score: 0,
   yards: 0,
@@ -117,6 +142,9 @@ function startAudio() {
       oscillator.stop(now + 0.25)
       musicStep += 1
     }, 250)
+    window.setInterval(() => {
+      if (audioContext && state.running && Math.random() > 0.35) playCrowdCheer()
+    }, 2400)
   }
   if (audioContext.state === 'suspended') void audioContext.resume()
 }
@@ -221,12 +249,12 @@ function createField() {
 
   const endZone = new THREE.Mesh(
     new THREE.PlaneGeometry(53.3, 10),
-    new THREE.MeshStandardMaterial({ color: 0x1d4ed8 }),
+    new THREE.MeshStandardMaterial({ color: 0x4c1d95 }),
   )
   endZone.rotation.x = -Math.PI / 2
   endZone.position.set(0, 0.02, -97)
   world.add(endZone)
-  const touchdown = labelSprite('TOUCHDOWN')
+  const touchdown = labelSprite('GO VIKINGS', '#fef08a')
   touchdown.position.set(0, 0.08, -97)
   touchdown.rotation.x = -Math.PI / 2
   touchdown.scale.set(11, 3.5, 1)
@@ -244,13 +272,17 @@ function createStadium() {
   const fanTransform = new THREE.Object3D()
 
   const addFan = (x: number, y: number, z: number, colorIndex: number, facing = 0) => {
+    const normalizedColorIndex = colorIndex % fanColors.length
+    const bodyIndex = fanBodyMatrices[normalizedColorIndex].length
+    const headIndex = fanHeadMatrices.length
     fanTransform.position.set(x, y + 0.28, z)
     fanTransform.rotation.set(0, facing, 0)
     fanTransform.updateMatrix()
-    fanBodyMatrices[colorIndex % fanColors.length].push(fanTransform.matrix.clone())
+    fanBodyMatrices[normalizedColorIndex].push(fanTransform.matrix.clone())
     fanTransform.position.y = y + 0.67
     fanTransform.updateMatrix()
     fanHeadMatrices.push(fanTransform.matrix.clone())
+    crowdMembers.push({ x, y, z, facing, phase: randomBetween(0, Math.PI * 2), colorIndex: normalizedColorIndex, bodyIndex, headIndex })
   }
 
   // A deeper bowl makes the stadium feel full while retaining a clear field-level view.
@@ -296,11 +328,13 @@ function createStadium() {
     matrices.forEach((matrix, index) => bodies.setMatrixAt(index, matrix))
     bodies.instanceMatrix.needsUpdate = true
     world.add(bodies)
+    crowdBodyMeshes[colorIndex] = bodies
   }
   const heads = new THREE.InstancedMesh(fanHeadGeometry, skinMaterial, fanHeadMatrices.length)
   fanHeadMatrices.forEach((matrix, index) => heads.setMatrixAt(index, matrix))
   heads.instanceMatrix.needsUpdate = true
   world.add(heads)
+  crowdHeadMesh = heads
 
   const outerWallMaterial = new THREE.MeshStandardMaterial({ color: 0x111c30, roughness: 0.88 })
   for (const x of [-44, 44]) {
@@ -410,6 +444,22 @@ function createDefender(x: number, z: number, color: number, number: number) {
   defenders.push({ mesh: group, x, z, runPhase: randomBetween(0, Math.PI * 2) })
 }
 
+function playCrowdCheer() {
+  if (!audioContext || audioContext.state !== 'running') return
+  const now = audioContext.currentTime
+  const oscillator = audioContext.createOscillator()
+  const cheerGain = audioContext.createGain()
+  oscillator.type = 'triangle'
+  oscillator.frequency.setValueAtTime(randomBetween(180, 280), now)
+  oscillator.frequency.linearRampToValueAtTime(randomBetween(260, 390), now + 0.32)
+  cheerGain.gain.setValueAtTime(0.0001, now)
+  cheerGain.gain.exponentialRampToValueAtTime(0.018, now + 0.06)
+  cheerGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55)
+  oscillator.connect(cheerGain).connect(audioContext.destination)
+  oscillator.start(now)
+  oscillator.stop(now + 0.56)
+}
+
 function createReceiver(x: number, breakX: number, targetX: number, routeDepth: number, number: number) {
   const group = new THREE.Group()
   const uniform = new THREE.MeshStandardMaterial({ color: 0x8b5cf6 })
@@ -425,6 +475,21 @@ function createReceiver(x: number, breakX: number, targetX: number, routeDepth: 
     leg.position.set(legX, 0.38, 0)
     group.add(leg)
   }
+  for (const armX of [-0.52, 0.52]) {
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.82, 7), uniform)
+    arm.position.set(armX, 1.2, -0.08)
+    arm.rotation.z = armX * -0.42
+    group.add(arm)
+  }
+  const heldFootball = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 14, 9),
+    new THREE.MeshStandardMaterial({ color: 0x8b451f, roughness: 0.7 }),
+  )
+  heldFootball.scale.set(0.72, 1.35, 0.72)
+  heldFootball.position.set(0.42, 1.08, -0.42)
+  heldFootball.rotation.z = -0.5
+  heldFootball.visible = false
+  group.add(heldFootball)
   const marker = new THREE.Mesh(
     new THREE.RingGeometry(0.48, 0.68, 20),
     new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide, transparent: true, opacity: 0.95 }),
@@ -438,12 +503,47 @@ function createReceiver(x: number, breakX: number, targetX: number, routeDepth: 
   group.add(label)
   group.position.set(x, 0, state.cameraZ - 8)
   world.add(group)
-  receivers.push({ mesh: group, target: marker, startX: x, breakX, targetX, startZ: group.position.z, routeDepth, routePhase: randomBetween(0, Math.PI * 2) })
+  receivers.push({ mesh: group, target: marker, heldFootball, startX: x, breakX, targetX, startZ: group.position.z, routeDepth, routePhase: randomBetween(0, Math.PI * 2) })
 }
 
-function buildReceivers(play: PlayId) {
+function createLineman(x: number, z: number, number: number) {
+  const group = new THREE.Group()
+  const uniform = new THREE.MeshStandardMaterial({ color: 0x8b5cf6 })
+  const dark = new THREE.MeshStandardMaterial({ color: 0x0f172a })
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.65, 0.9), uniform)
+  torso.position.y = 1.22
+  group.add(torso)
+  const pads = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 8), uniform)
+  pads.scale.set(1.05, 0.32, 0.58)
+  pads.position.y = 1.92
+  group.add(pads)
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 8), dark)
+  helmet.position.y = 2.4
+  group.add(helmet)
+  for (const legX of [-0.34, 0.34]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 1.05, 8), dark)
+    leg.position.set(legX, 0.44, 0)
+    group.add(leg)
+  }
+  const label = labelSprite(String(number), '#fef08a')
+  label.position.set(0, 1.3, -0.5)
+  label.scale.set(0.72, 0.38, 1)
+  group.add(label)
+  group.position.set(x, 0, z)
+  world.add(group)
+  linemen.push({ mesh: group, startX: x, startZ: z, blockPhase: randomBetween(0, Math.PI * 2) })
+}
+
+function buildOffensiveLine() {
+  while (linemen.length) world.remove(linemen.pop()!.mesh)
+  for (const [index, x] of [-7.2, -3.6, 0, 3.6, 7.2].entries()) {
+    createLineman(x, state.cameraZ - 5.5, 60 + index)
+  }
+}
+
+function buildReceivers(play: Exclude<PlayId, 'run'>) {
   while (receivers.length) world.remove(receivers.pop()!.mesh)
-  const routes: Record<PlayId, Array<[number, number, number, number]>> = {
+  const routes: Record<Exclude<PlayId, 'run'>, Array<[number, number, number, number]>> = {
     slant: [[-14, -8, 4, 29], [0, 4, 14, 33], [14, 8, -3, 28]],
     verticals: [[-16, -18, -20, 52], [0, 1, 2, 48], [16, 18, 20, 52]],
     flood: [[-15, -9, -2, 20], [-2, 8, 17, 34], [13, 18, 23, 46]],
@@ -489,7 +589,10 @@ function buildDefense() {
     world.remove(defender.mesh)
   }
   for (let index = 0; index < 11; index += 1) {
-    createDefender(randomBetween(-22, 22), state.cameraZ - 24 - index * 7 - randomBetween(0, 5), 0xf97316, index + 1)
+    const frontX = [-7.2, -3.6, 0, 3.6, 7.2][index]
+    const x = index < 5 ? frontX + randomBetween(-0.6, 0.6) : randomBetween(-22, 22)
+    const z = index < 5 ? state.cameraZ - 12 - randomBetween(0, 1.5) : state.cameraZ - 24 - (index - 5) * 7 - randomBetween(0, 5)
+    createDefender(x, z, 0xf97316, index + 1)
   }
 }
 
@@ -507,6 +610,7 @@ function resetDrive() {
   state.passTime = 0
   state.passTarget = null
   buildDefense()
+  while (linemen.length) world.remove(linemen.pop()!.mesh)
   while (receivers.length) world.remove(receivers.pop()!.mesh)
   playerFootball.visible = true
   thrownFootball.visible = false
@@ -516,15 +620,34 @@ function resetDrive() {
   footstepTimer = 0
 }
 
+function lineUpForSnap() {
+  state.playerX = 0
+  state.passTarget = null
+  playerFootball.visible = true
+  thrownFootball.visible = false
+  camera.position.set(0, 2.35, state.cameraZ)
+  camera.lookAt(0, 1.8, state.cameraZ - 42)
+  playerView.position.x = 0
+  playerView.rotation.z = 0
+  buildDefense()
+  buildOffensiveLine()
+}
+
 function startPlay(play: PlayId) {
   startAudio()
   state.selectedPlay = play
   state.playTime = 0
   state.running = true
-  buildDefense()
-  buildReceivers(play)
+  lineUpForSnap()
+  if (play === 'run') {
+    while (receivers.length) world.remove(receivers.pop()!.mesh)
+  } else {
+    buildReceivers(play)
+  }
   playCall.classList.add('is-hidden')
-  statusText.textContent = `${state.down}${state.down === 1 ? 'st' : state.down === 2 ? 'nd' : state.down === 3 ? 'rd' : 'th'} down — click a glowing receiver, or press 1, 2, or 3 to throw.`
+  statusText.textContent = play === 'run'
+    ? 'Run play — use A / D to find a lane and Shift or Space to sprint.'
+    : `${state.down}${state.down === 1 ? 'st' : state.down === 2 ? 'nd' : state.down === 3 ? 'rd' : 'th'} down — click a glowing receiver, or press 1, 2, or 3 to throw.`
   updateHud()
 }
 
@@ -584,6 +707,7 @@ function updatePass(delta: number) {
     }
     return
   }
+  receiver.heldFootball.visible = true
   state.playerX = receiver.mesh.position.x
   state.cameraZ = receiver.mesh.position.z + 4
   camera.position.set(state.playerX, 2.35, state.cameraZ)
@@ -591,7 +715,7 @@ function updatePass(delta: number) {
   state.yards = Math.min(100, Math.max(0, Math.round(8 - state.cameraZ)))
   if (state.yards >= 100) {
     state.score += 1
-    statusText.textContent = 'TOUCHDOWN! Hit New Drive for another play.'
+    statusText.textContent = 'TOUCHDOWN!!! Hit New Drive for another play.'
   } else {
     state.selectedPlay = null
     if (state.yards - state.firstDownYards >= 10) {
@@ -619,6 +743,27 @@ function updateHud() {
   downEl.textContent = `${Math.min(state.down, 4)} / 4`
 }
 
+function finishRunPlay() {
+  state.running = false
+  state.selectedPlay = null
+  if (state.yards - state.firstDownYards >= 10) {
+    state.firstDownYards = state.yards
+    state.down = 1
+    statusText.textContent = `Tackle! First down at the ${Math.floor(state.yards)}-yard line. Pick the next play.`
+  } else {
+    state.down += 1
+    if (state.down > 4) {
+      statusText.textContent = 'GAME OVER — four downs without a first down.'
+      updateHud()
+      window.setTimeout(resetDrive, 1800)
+      return
+    }
+    statusText.textContent = `Tackle! Ball at the ${Math.floor(state.yards)}-yard line. ${state.down}${state.down === 2 ? 'nd' : state.down === 3 ? 'rd' : 'th'} down — pick the next play.`
+  }
+  playCall.classList.remove('is-hidden')
+  updateHud()
+}
+
 function updateGame(delta: number) {
   if (!state.running) return
   updateReceivers(delta)
@@ -626,20 +771,34 @@ function updateGame(delta: number) {
     updatePass(delta)
     return
   }
+  const isRunPlay = state.selectedPlay === 'run'
   const direction = (keys.left ? -1 : 0) + (keys.right ? 1 : 0)
+  const depthDirection = isRunPlay ? 1 : (keys.forward ? 1 : 0) + (keys.backward ? -1 : 0)
   const speed = (keys.sprint ? 31 : 20) * delta
   state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12, -22, 22)
-  state.cameraZ -= speed
+  state.cameraZ -= depthDirection * speed
   state.yards = Math.max(0, 8 - state.cameraZ)
   camera.position.x += (state.playerX - camera.position.x) * Math.min(1, delta * 10)
   camera.position.z = state.cameraZ
   camera.lookAt(camera.position.x, 1.8, state.cameraZ - 42)
   playerView.position.x = (state.playerX - camera.position.x) * 0.18
   playerView.rotation.z = -direction * 0.04
-  footstepTimer -= delta
-  if (footstepTimer <= 0) {
-    playFootstep()
-    footstepTimer = keys.sprint ? 0.2 : 0.3
+  if (isRunPlay || direction !== 0 || depthDirection !== 0) {
+    footstepTimer -= delta
+    if (footstepTimer <= 0) {
+      playFootstep()
+      footstepTimer = keys.sprint ? 0.2 : 0.3
+    }
+  }
+
+  for (const lineman of linemen) {
+    const drive = Math.min(state.playTime * 1.5, 3)
+    lineman.mesh.position.set(
+      lineman.startX + Math.sin(state.playTime * 5 + lineman.blockPhase) * 0.18,
+      Math.abs(Math.sin(state.playTime * 8 + lineman.blockPhase)) * 0.05,
+      lineman.startZ - drive,
+    )
+    lineman.mesh.rotation.y = Math.sin(state.playTime * 3 + lineman.blockPhase) * 0.08
   }
 
   for (const defender of defenders) {
@@ -653,8 +812,7 @@ function updateGame(delta: number) {
     defender.mesh.rotation.z = Math.sin(performance.now() * 0.012 + defender.runPhase) * 0.035
     const distance = defender.z - state.cameraZ
     if (distance > -1.2 && distance < 1.4 && Math.abs(defender.x - state.playerX) < 1.7) {
-      state.running = false
-      statusText.textContent = 'Tackle! Hit New Drive to try again.'
+      finishRunPlay()
       return
     }
   }
@@ -662,7 +820,7 @@ function updateGame(delta: number) {
   if (state.yards >= 100) {
     state.running = false
     state.score += 1
-    statusText.textContent = 'TOUCHDOWN! Nice run.'
+    statusText.textContent = 'TOUCHDOWN!!! Nice run.'
   }
   updateHud()
 }
@@ -676,10 +834,27 @@ function resize() {
   camera.updateProjectionMatrix()
 }
 
+function updateCrowd(time: number) {
+  if (!crowdHeadMesh) return
+  for (const fan of crowdMembers) {
+    const jump = Math.max(0, Math.sin(time * 0.008 + fan.phase)) * 0.18
+    crowdTransform.position.set(fan.x, fan.y + 0.28 + jump, fan.z)
+    crowdTransform.rotation.set(0, fan.facing, 0)
+    crowdTransform.updateMatrix()
+    crowdBodyMeshes[fan.colorIndex].setMatrixAt(fan.bodyIndex, crowdTransform.matrix)
+    crowdTransform.position.y = fan.y + 0.67 + jump
+    crowdTransform.updateMatrix()
+    crowdHeadMesh.setMatrixAt(fan.headIndex, crowdTransform.matrix)
+  }
+  crowdBodyMeshes.forEach((bodies) => { bodies.instanceMatrix.needsUpdate = true })
+  crowdHeadMesh.instanceMatrix.needsUpdate = true
+}
+
 function frame(time: number) {
   const delta = Math.min((time - state.lastTime) / 1000 || 0.016, 0.04)
   state.lastTime = time
   updateGame(delta)
+  updateCrowd(time)
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
 }
@@ -710,12 +885,16 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') keys.left = true
   if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') keys.right = true
+  if (event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') keys.forward = true
+  if (event.key === 'ArrowDown' || event.key.toLowerCase() === 's') keys.backward = true
   if (event.key === ' ' || event.key.toLowerCase() === 'shift') keys.sprint = true
-  if (['ArrowLeft', 'ArrowRight', ' ', 'a', 'd'].includes(event.key)) event.preventDefault()
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'a', 'd', 'w', 's'].includes(event.key)) event.preventDefault()
 })
 window.addEventListener('keyup', (event) => {
   if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') keys.left = false
   if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') keys.right = false
+  if (event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') keys.forward = false
+  if (event.key === 'ArrowDown' || event.key.toLowerCase() === 's') keys.backward = false
   if (event.key === ' ' || event.key.toLowerCase() === 'shift') keys.sprint = false
 })
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-move]')) {
