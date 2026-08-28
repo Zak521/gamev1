@@ -47,6 +47,49 @@ const defenders: Defender[] = []
 const keys = { left: false, right: false, sprint: false }
 const state = { score: 0, yards: 0, playerX: 0, cameraZ: 8, running: true, lastTime: 0 }
 
+let audioContext: AudioContext | null = null
+let musicStep = 0
+let footstepTimer = 0
+
+function startAudio() {
+  if (!audioContext) {
+    audioContext = new AudioContext()
+    window.setInterval(() => {
+      if (!audioContext || !state.running) return
+      const now = audioContext.currentTime
+      const notes = [110, 110, 147, 165, 110, 110, 196, 165]
+      const oscillator = audioContext.createOscillator()
+      const noteGain = audioContext.createGain()
+      oscillator.type = 'sawtooth'
+      oscillator.frequency.value = notes[musicStep % notes.length]
+      noteGain.gain.setValueAtTime(0.0001, now)
+      noteGain.gain.exponentialRampToValueAtTime(0.045, now + 0.015)
+      noteGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24)
+      oscillator.connect(noteGain).connect(audioContext.destination)
+      oscillator.start(now)
+      oscillator.stop(now + 0.25)
+      musicStep += 1
+    }, 250)
+  }
+  if (audioContext.state === 'suspended') void audioContext.resume()
+}
+
+function playFootstep() {
+  if (!audioContext || audioContext.state !== 'running') return
+  const now = audioContext.currentTime
+  const oscillator = audioContext.createOscillator()
+  const stepGain = audioContext.createGain()
+  oscillator.type = 'triangle'
+  oscillator.frequency.setValueAtTime(keys.sprint ? 125 : 105, now)
+  oscillator.frequency.exponentialRampToValueAtTime(58, now + 0.11)
+  stepGain.gain.setValueAtTime(0.0001, now)
+  stepGain.gain.exponentialRampToValueAtTime(keys.sprint ? 0.18 : 0.13, now + 0.012)
+  stepGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.13)
+  oscillator.connect(stepGain).connect(audioContext.destination)
+  oscillator.start(now)
+  oscillator.stop(now + 0.14)
+}
+
 function randomBetween(min: number, max: number) {
   return Math.random() * (max - min) + min
 }
@@ -68,6 +111,25 @@ function labelSprite(text: string, color = '#ffffff') {
   return sprite
 }
 
+function fieldNumber(text: string) {
+  const numberCanvas = document.createElement('canvas')
+  numberCanvas.width = 256
+  numberCanvas.height = 128
+  const numberContext = numberCanvas.getContext('2d')!
+  numberContext.fillStyle = '#ffffff'
+  numberContext.font = 'bold 78px Arial'
+  numberContext.textAlign = 'center'
+  numberContext.textBaseline = 'middle'
+  numberContext.fillText(text, 128, 64)
+  const texture = new THREE.CanvasTexture(numberCanvas)
+  const number = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.5, 2.75),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }),
+  )
+  number.rotation.x = -Math.PI / 2
+  return number
+}
+
 function createField() {
   const field = new THREE.Mesh(
     new THREE.PlaneGeometry(53.3, 110),
@@ -87,9 +149,8 @@ function createField() {
 
     if (yard % 10 === 0 && yard > 0 && yard < 100) {
       for (const x of [-18.5, 18.5]) {
-        const number = labelSprite(String(yard))
-        number.position.set(x, 0.04, z + 1.2)
-        number.rotation.x = -Math.PI / 2
+        const number = fieldNumber(String(yard))
+        number.position.set(x, 0.035, z + 1.2)
         world.add(number)
       }
     }
@@ -304,6 +365,7 @@ function buildDefense() {
 }
 
 function resetDrive() {
+  startAudio()
   state.yards = 0
   state.playerX = 0
   state.cameraZ = 8
@@ -311,6 +373,7 @@ function resetDrive() {
   buildDefense()
   statusText.textContent = 'Break through the defense!'
   updateHud()
+  footstepTimer = 0
 }
 
 function updateHud() {
@@ -330,6 +393,11 @@ function updateGame(delta: number) {
   camera.lookAt(camera.position.x, 1.8, state.cameraZ - 42)
   playerView.position.x = (state.playerX - camera.position.x) * 0.18
   playerView.rotation.z = -direction * 0.04
+  footstepTimer -= delta
+  if (footstepTimer <= 0) {
+    playFootstep()
+    footstepTimer = keys.sprint ? 0.2 : 0.3
+  }
 
   for (const defender of defenders) {
     defender.z += 5.2 * delta
@@ -390,6 +458,7 @@ resetDrive()
 resize()
 window.addEventListener('resize', resize)
 window.addEventListener('keydown', (event) => {
+  startAudio()
   if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') keys.left = true
   if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') keys.right = true
   if (event.key === ' ' || event.key.toLowerCase() === 'shift') keys.sprint = true
@@ -407,7 +476,10 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-move]')
     if (move === 'right') keys.right = active
     if (move === 'sprint') keys.sprint = active
   }
-  button.addEventListener('pointerdown', () => setActive(true))
+  button.addEventListener('pointerdown', () => {
+    startAudio()
+    setActive(true)
+  })
   button.addEventListener('pointerup', () => setActive(false))
   button.addEventListener('pointerleave', () => setActive(false))
   button.addEventListener('pointercancel', () => setActive(false))
