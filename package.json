@@ -1,0 +1,19 @@
+{
+  "name": "gamev1",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d": "^0.20.0",
+    "three": "^0.185.1"
+  }
+}
