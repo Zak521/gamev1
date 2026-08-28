@@ -131,6 +131,80 @@ button {
   color: #f8fafc;
 }
 
+.play-call {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  background: linear-gradient(135deg, rgba(2, 8, 23, 0.82), rgba(15, 23, 42, 0.62));
+  backdrop-filter: blur(5px);
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.play-call.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.play-call-kicker {
+  color: #fbbf24;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.play-call h2 {
+  margin: 0;
+  font-size: clamp(1.6rem, 4vw, 2.5rem);
+}
+
+.play-call p {
+  margin: 0 0 8px;
+  color: #dbeafe;
+}
+
+.play-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(135px, 1fr));
+  gap: 10px;
+  width: min(620px, 88vw);
+}
+
+.play-options button {
+  display: grid;
+  gap: 5px;
+  padding: 15px 13px;
+  border: 1px solid rgba(125, 211, 252, 0.58);
+  border-radius: 13px;
+  color: #f8fafc;
+  text-align: left;
+  cursor: pointer;
+  background: rgba(15, 35, 61, 0.88);
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.play-options button:hover {
+  transform: translateY(-3px);
+  border-color: #fbbf24;
+  background: rgba(30, 64, 104, 0.96);
+}
+
+.play-options strong {
+  font-size: 0.95rem;
+}
+
+.play-options span {
+  color: #bfdbfe;
+  font-size: 0.76rem;
+  line-height: 1.25;
+}
+
 .controls-panel {
   display: flex;
   align-items: center;
@@ -192,5 +266,8 @@ button {
   .touch-controls button {
     flex: 1;
   }
-}
 
+  .play-options {
+    grid-template-columns: 1fr;
+  }
+}

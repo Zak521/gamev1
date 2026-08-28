@@ -8,6 +8,19 @@ type Defender = {
   runPhase: number
 }
 
+type Receiver = {
+  mesh: THREE.Group
+  target: THREE.Mesh
+  startX: number
+  breakX: number
+  targetX: number
+  startZ: number
+  routeDepth: number
+  routePhase: number
+}
+
+type PlayId = 'slant' | 'verticals' | 'flood'
+
 const app = document.querySelector<HTMLDivElement>('#app')!
 
 app.innerHTML = `
@@ -15,11 +28,22 @@ app.innerHTML = `
     <header class="top-bar">
       <div class="score-card"><span class="label">Score</span><strong id="score">0</strong></div>
       <div class="score-card"><span class="label">Yards</span><strong id="yards">0 / 100</strong></div>
+      <div class="score-card"><span class="label">Down</span><strong id="down">1 / 4</strong></div>
       <button id="resetButton" class="reset-button" type="button">New Drive</button>
     </header>
     <div class="game-frame">
       <canvas id="gameCanvas" width="960" height="540" aria-label="3D first-person football game"></canvas>
       <div class="status-panel"><span id="statusText">Break through the defense!</span></div>
+      <div id="playCall" class="play-call" role="dialog" aria-label="Choose an offensive play">
+        <span class="play-call-kicker">Offense · 1st &amp; 10</span>
+        <h2>Pick a play</h2>
+        <p>Choose a concept, then click a glowing receiver target to throw.</p>
+        <div class="play-options">
+          <button type="button" data-play="slant"><strong>Quick Slant</strong><span>Fast inside-breaking routes</span></button>
+          <button type="button" data-play="verticals"><strong>Four Verticals</strong><span>Attack deep downfield</span></button>
+          <button type="button" data-play="flood"><strong>Flood Right</strong><span>Three-level sideline read</span></button>
+        </div>
+      </div>
     </div>
     <div class="controls-panel">
       <div class="instructions">
@@ -35,21 +59,44 @@ app.innerHTML = `
 const canvas = document.querySelector<HTMLCanvasElement>('#gameCanvas')!
 const scoreEl = document.querySelector<HTMLElement>('#score')!
 const yardsEl = document.querySelector<HTMLElement>('#yards')!
+const downEl = document.querySelector<HTMLElement>('#down')!
 const statusText = document.querySelector<HTMLElement>('#statusText')!
 const resetButton = document.querySelector<HTMLButtonElement>('#resetButton')!
+const playCall = document.querySelector<HTMLDivElement>('#playCall')!
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
 const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(68, 1, 0.1, 260)
 const world = new THREE.Group()
 const playerView = new THREE.Group()
 const defenders: Defender[] = []
+const receivers: Receiver[] = []
+const passRaycaster = new THREE.Raycaster()
+const pointer = new THREE.Vector2()
 
 const keys = { left: false, right: false, sprint: false }
-const state = { score: 0, yards: 0, playerX: 0, cameraZ: 8, running: true, lastTime: 0 }
+const state = {
+  score: 0,
+  yards: 0,
+  down: 1,
+  firstDownYards: 0,
+  playerX: 0,
+  cameraZ: 8,
+  running: false,
+  lastTime: 0,
+  playTime: 0,
+  selectedPlay: null as PlayId | null,
+  throwing: false,
+  passTime: 0,
+  passTarget: null as Receiver | null,
+  passComplete: true,
+}
+let playerFootball: THREE.Mesh
+let thrownFootball: THREE.Mesh
 
 let audioContext: AudioContext | null = null
 let musicStep = 0
 let footstepTimer = 0
+const passStart = new THREE.Vector3()
 
 function startAudio() {
   if (!audioContext) {
@@ -187,95 +234,129 @@ function createField() {
 }
 
 function createStadium() {
-  const standColors = [0x24324a, 0x334155, 0x475569]
-  const seatGeometry = new THREE.BoxGeometry(2.5, 1.45, 110)
-  for (const side of [-1, 1]) {
-    for (let row = 0; row < 5; row += 1) {
-      const seats = new THREE.Mesh(
-        seatGeometry,
-        new THREE.MeshStandardMaterial({ color: standColors[row % standColors.length], roughness: 0.8 }),
-      )
-      seats.position.set(side * (29 + row * 1.35), 0.65 + row * 0.85, -47)
-      world.add(seats)
-    }
+  const standColors = [0x17233b, 0x253654, 0x334b70]
+  const fanColors = [0xf8fafc, 0xfbbf24, 0x38bdf8, 0xf43f5e, 0x22c55e, 0xa78bfa, 0xfb923c]
+  const fanHeadGeometry = new THREE.SphereGeometry(0.14, 7, 5)
+  const fanBodyGeometry = new THREE.CylinderGeometry(0.19, 0.25, 0.5, 6)
+  const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const fanBodyMatrices = fanColors.map(() => [] as THREE.Matrix4[])
+  const fanHeadMatrices: THREE.Matrix4[] = []
+  const fanTransform = new THREE.Object3D()
+
+  const addFan = (x: number, y: number, z: number, colorIndex: number, facing = 0) => {
+    fanTransform.position.set(x, y + 0.28, z)
+    fanTransform.rotation.set(0, facing, 0)
+    fanTransform.updateMatrix()
+    fanBodyMatrices[colorIndex % fanColors.length].push(fanTransform.matrix.clone())
+    fanTransform.position.y = y + 0.67
+    fanTransform.updateMatrix()
+    fanHeadMatrices.push(fanTransform.matrix.clone())
   }
 
-  const fanHeadGeometry = new THREE.SphereGeometry(0.16, 8, 6)
-  const fanBodyGeometry = new THREE.CylinderGeometry(0.2, 0.26, 0.52, 6)
-  const fanColors = [0xf8fafc, 0xfbbf24, 0x38bdf8, 0xf43f5e, 0x22c55e, 0xa78bfa]
+  // A deeper bowl makes the stadium feel full while retaining a clear field-level view.
   for (const side of [-1, 1]) {
-    for (let row = 0; row < 5; row += 1) {
-      for (let seat = 0; seat < 20; seat += 1) {
-        const fan = new THREE.Group()
-        const fanMaterial = new THREE.MeshStandardMaterial({ color: fanColors[(seat + row * 2) % fanColors.length] })
-        const head = new THREE.Mesh(fanHeadGeometry, new THREE.MeshStandardMaterial({ color: 0xf0b48a }))
-        const body = new THREE.Mesh(fanBodyGeometry, fanMaterial)
-        head.position.y = 0.72
-        body.position.y = 0.32
-        fan.add(head, body)
-        fan.position.set(
-          side * (29 + row * 1.35),
-          1.05 + row * 0.85,
-          -101 + seat * 5.5 + (row % 2) * 1.2,
-        )
-        world.add(fan)
+    for (let row = 0; row < 12; row += 1) {
+      const x = side * (29 + row * 1.18)
+      const y = 0.55 + row * 0.72
+      const seats = new THREE.Mesh(
+        new THREE.BoxGeometry(2.25, 1.15, 112),
+        new THREE.MeshStandardMaterial({ color: standColors[row % standColors.length], roughness: 0.82 }),
+      )
+      seats.position.set(x, y, -47)
+      world.add(seats)
+      for (let seat = 0; seat < 52; seat += 1) {
+        addFan(x - side * 1.18, y + 0.5, -101 + seat * 2.1 + (row % 2) * 0.55, seat + row * 3, -side * Math.PI / 2)
       }
     }
   }
 
-  const endStandGeometry = new THREE.BoxGeometry(64, 1.15, 2.2)
-  for (let row = 0; row < 4; row += 1) {
-    const seats = new THREE.Mesh(
-      endStandGeometry,
-      new THREE.MeshStandardMaterial({ color: standColors[(row + 1) % standColors.length], roughness: 0.8 }),
-    )
-    seats.position.set(0, 0.55 + row * 0.78, -105 - row * 1.15)
-    world.add(seats)
-  }
-
-  for (let row = 0; row < 4; row += 1) {
-    for (let seat = 0; seat < 16; seat += 1) {
-      const fan = new THREE.Group()
-      const head = new THREE.Mesh(fanHeadGeometry, new THREE.MeshStandardMaterial({ color: 0xf0b48a }))
-      const body = new THREE.Mesh(
-        fanBodyGeometry,
-        new THREE.MeshStandardMaterial({ color: fanColors[(seat * 2 + row) % fanColors.length] }),
+  for (const end of [1, -1]) {
+    for (let row = 0; row < 10; row += 1) {
+      const z = end === 1 ? 11.2 + row * 1.22 : -105.2 - row * 1.22
+      const y = 0.5 + row * 0.72
+      const seats = new THREE.Mesh(
+        new THREE.BoxGeometry(82, 1.12, 2.25),
+        new THREE.MeshStandardMaterial({ color: standColors[(row + 1) % standColors.length], roughness: 0.82 }),
       )
-      head.position.y = 0.66
-      body.position.y = 0.28
-      fan.add(head, body)
-      fan.position.set(-30 + seat * 4, 1.05 + row * 0.78, -104 - row * 1.15)
-      world.add(fan)
+      seats.position.set(0, y, z)
+      world.add(seats)
+      for (let seat = 0; seat < 36; seat += 1) {
+        addFan(-36 + seat * 2.05, y + 0.5, z - end * 1.15, seat * 2 + row, end === 1 ? Math.PI : 0)
+      }
     }
   }
 
-  const stadiumWall = new THREE.Mesh(
-    new THREE.BoxGeometry(78, 5, 2),
-    new THREE.MeshStandardMaterial({ color: 0x172033, roughness: 0.9 }),
+  // Use instancing so the packed crowd remains inexpensive to render.
+  for (const [colorIndex, matrices] of fanBodyMatrices.entries()) {
+    const bodies = new THREE.InstancedMesh(
+      fanBodyGeometry,
+      new THREE.MeshStandardMaterial({ color: fanColors[colorIndex], roughness: 0.8 }),
+      matrices.length,
+    )
+    matrices.forEach((matrix, index) => bodies.setMatrixAt(index, matrix))
+    bodies.instanceMatrix.needsUpdate = true
+    world.add(bodies)
+  }
+  const heads = new THREE.InstancedMesh(fanHeadGeometry, skinMaterial, fanHeadMatrices.length)
+  fanHeadMatrices.forEach((matrix, index) => heads.setMatrixAt(index, matrix))
+  heads.instanceMatrix.needsUpdate = true
+  world.add(heads)
+
+  const outerWallMaterial = new THREE.MeshStandardMaterial({ color: 0x111c30, roughness: 0.88 })
+  for (const x of [-44, 44]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(2.6, 13, 128), outerWallMaterial)
+    wall.position.set(x, 4.5, -47)
+    world.add(wall)
+  }
+  for (const z of [18, -112]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(90, 13, 2.6), outerWallMaterial)
+    wall.position.set(0, 4.5, z)
+    world.add(wall)
+  }
+
+  const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x17243a, metalness: 0.45, roughness: 0.5, side: THREE.DoubleSide })
+  const trussMaterial = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.3 })
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(90, 1.2, 130), roofMaterial)
+  roof.position.set(0, 26, -47)
+  world.add(roof)
+  const skylight = new THREE.Mesh(
+    new THREE.PlaneGeometry(45, 94),
+    new THREE.MeshStandardMaterial({ color: 0x6ea7c8, emissive: 0x163b58, emissiveIntensity: 0.7, transparent: true, opacity: 0.72, side: THREE.DoubleSide }),
   )
-  stadiumWall.position.set(0, -1.5, -109)
-  world.add(stadiumWall)
+  skylight.rotation.x = Math.PI / 2
+  skylight.position.set(0, 25.35, -47)
+  world.add(skylight)
+  for (let z = -105; z <= 11; z += 16) {
+    const truss = new THREE.Mesh(new THREE.BoxGeometry(88, 0.32, 0.42), trussMaterial)
+    truss.position.set(0, 24.95, z)
+    world.add(truss)
+  }
+  for (let x = -38; x <= 38; x += 19) {
+    const truss = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 126), trussMaterial)
+    truss.position.set(x, 24.95, -47)
+    world.add(truss)
+  }
 
   const scoreboard = new THREE.Mesh(
     new THREE.BoxGeometry(13, 6, 0.8),
     new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.55 }),
   )
-  scoreboard.position.set(0, 9, -108)
+  scoreboard.position.set(0, 13, -110.5)
   world.add(scoreboard)
   const scoreboardText = labelSprite('HOME  0   AWAY  0', '#fbbf24')
-  scoreboardText.position.set(0, 9, -107.5)
+  scoreboardText.position.set(0, 13, -110)
   scoreboardText.scale.set(8, 1.6, 1)
   world.add(scoreboardText)
 
   const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.7, roughness: 0.35 })
   const lampMaterial = new THREE.MeshStandardMaterial({ color: 0xfff7cc, emissive: 0xffd166, emissiveIntensity: 2.5 })
-  for (const x of [-35, 35]) {
+  for (const x of [-40, 40]) {
     for (const z of [-18, -76]) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 13, 10), poleMaterial)
-      pole.position.set(x, 6.5, z)
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 21, 10), poleMaterial)
+      pole.position.set(x, 13, z)
       world.add(pole)
       const lamp = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.45, 0.8), lampMaterial)
-      lamp.position.set(x, 13.15, z)
+      lamp.position.set(x, 23.15, z)
       world.add(lamp)
     }
   }
@@ -329,6 +410,47 @@ function createDefender(x: number, z: number, color: number, number: number) {
   defenders.push({ mesh: group, x, z, runPhase: randomBetween(0, Math.PI * 2) })
 }
 
+function createReceiver(x: number, breakX: number, targetX: number, routeDepth: number, number: number) {
+  const group = new THREE.Group()
+  const uniform = new THREE.MeshStandardMaterial({ color: 0x8b5cf6 })
+  const dark = new THREE.MeshStandardMaterial({ color: 0x0f172a })
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.35, 0.58), uniform)
+  torso.position.y = 1.12
+  group.add(torso)
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 8), dark)
+  helmet.position.y = 2.05
+  group.add(helmet)
+  for (const legX of [-0.22, 0.22]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.9, 7), dark)
+    leg.position.set(legX, 0.38, 0)
+    group.add(leg)
+  }
+  const marker = new THREE.Mesh(
+    new THREE.RingGeometry(0.48, 0.68, 20),
+    new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide, transparent: true, opacity: 0.95 }),
+  )
+  marker.rotation.x = -Math.PI / 2
+  marker.position.y = 0.04
+  group.add(marker)
+  const label = labelSprite(String(number), '#fef08a')
+  label.position.set(0, 3.05, 0)
+  label.scale.set(0.8, 0.42, 1)
+  group.add(label)
+  group.position.set(x, 0, state.cameraZ - 8)
+  world.add(group)
+  receivers.push({ mesh: group, target: marker, startX: x, breakX, targetX, startZ: group.position.z, routeDepth, routePhase: randomBetween(0, Math.PI * 2) })
+}
+
+function buildReceivers(play: PlayId) {
+  while (receivers.length) world.remove(receivers.pop()!.mesh)
+  const routes: Record<PlayId, Array<[number, number, number, number]>> = {
+    slant: [[-14, -8, 4, 29], [0, 4, 14, 33], [14, 8, -3, 28]],
+    verticals: [[-16, -18, -20, 52], [0, 1, 2, 48], [16, 18, 20, 52]],
+    flood: [[-15, -9, -2, 20], [-2, 8, 17, 34], [13, 18, 23, 46]],
+  }
+  routes[play].forEach(([startX, breakX, targetX, routeDepth], index) => createReceiver(startX, breakX, targetX, routeDepth, index + 1))
+}
+
 function createPlayerView() {
   const armMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a })
   const jersey = new THREE.MeshStandardMaterial({ color: 0x8b5cf6 })
@@ -343,14 +465,21 @@ function createPlayerView() {
     playerView.add(sleeve)
   }
 
-  const football = new THREE.Mesh(
+  playerFootball = new THREE.Mesh(
     new THREE.SphereGeometry(0.28, 16, 10),
     new THREE.MeshStandardMaterial({ color: 0x8b451f }),
   )
-  football.scale.set(0.72, 1.35, 0.72)
-  football.position.set(0, -1.05, -1.7)
-  football.rotation.z = -0.2
-  playerView.add(football)
+  playerFootball.scale.set(0.72, 1.35, 0.72)
+  playerFootball.position.set(0, -1.05, -1.7)
+  playerFootball.rotation.z = -0.2
+  playerView.add(playerFootball)
+  thrownFootball = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 16, 10),
+    new THREE.MeshStandardMaterial({ color: 0x8b451f, roughness: 0.7 }),
+  )
+  thrownFootball.scale.set(0.72, 1.35, 0.72)
+  thrownFootball.visible = false
+  world.add(thrownFootball)
   camera.add(playerView)
 }
 
@@ -360,29 +489,143 @@ function buildDefense() {
     world.remove(defender.mesh)
   }
   for (let index = 0; index < 11; index += 1) {
-    createDefender(randomBetween(-22, 22), -18 - index * 7 - randomBetween(0, 5), 0xf97316, index + 1)
+    createDefender(randomBetween(-22, 22), state.cameraZ - 24 - index * 7 - randomBetween(0, 5), 0xf97316, index + 1)
   }
 }
 
 function resetDrive() {
   startAudio()
   state.yards = 0
+  state.down = 1
+  state.firstDownYards = 0
   state.playerX = 0
   state.cameraZ = 8
-  state.running = true
+  state.running = false
+  state.playTime = 0
+  state.selectedPlay = null
+  state.throwing = false
+  state.passTime = 0
+  state.passTarget = null
   buildDefense()
-  statusText.textContent = 'Break through the defense!'
+  while (receivers.length) world.remove(receivers.pop()!.mesh)
+  playerFootball.visible = true
+  thrownFootball.visible = false
+  playCall.classList.remove('is-hidden')
+  statusText.textContent = 'Choose a play to start the drive.'
   updateHud()
   footstepTimer = 0
+}
+
+function startPlay(play: PlayId) {
+  startAudio()
+  state.selectedPlay = play
+  state.playTime = 0
+  state.running = true
+  buildDefense()
+  buildReceivers(play)
+  playCall.classList.add('is-hidden')
+  statusText.textContent = `${state.down}${state.down === 1 ? 'st' : state.down === 2 ? 'nd' : state.down === 3 ? 'rd' : 'th'} down — click a glowing receiver, or press 1, 2, or 3 to throw.`
+  updateHud()
+}
+
+function throwTo(receiver: Receiver) {
+  if (!state.running || state.throwing) return
+  state.throwing = true
+  state.passTime = 0
+  state.passTarget = receiver
+  const closestDefender = defenders.reduce((nearest, defender) => Math.min(nearest, defender.mesh.position.distanceTo(receiver.mesh.position)), Infinity)
+  state.passComplete = closestDefender > 4.5 || Math.random() > 0.62
+  playerFootball.visible = false
+  thrownFootball.visible = true
+  passStart.set(camera.position.x, camera.position.y - 0.55, camera.position.z - 1.4)
+  thrownFootball.position.copy(passStart)
+  statusText.textContent = 'Pass away!'
+}
+
+function updateReceivers(delta: number) {
+  state.playTime += delta
+  receivers.forEach((receiver) => {
+    const routeProgress = Math.min(1, state.playTime / 3.4)
+    const x = routeProgress < 0.35
+      ? THREE.MathUtils.lerp(receiver.startX, receiver.breakX, routeProgress / 0.35)
+      : THREE.MathUtils.lerp(receiver.breakX, receiver.targetX, (routeProgress - 0.35) / 0.65)
+    const depth = Math.min(receiver.routeDepth, 8 + state.playTime * 8)
+    receiver.mesh.position.set(x, 0, state.cameraZ - depth)
+    receiver.mesh.rotation.y = Math.atan2(x - receiver.startX, -depth) * 0.25
+    ;(receiver.target.material as THREE.MeshBasicMaterial).opacity = 0.72 + Math.sin(state.playTime * 7 + receiver.routePhase) * 0.23
+  })
+}
+
+function updatePass(delta: number) {
+  const receiver = state.passTarget
+  if (!receiver) return
+  state.passTime += delta
+  const progress = Math.min(1, state.passTime / 0.72)
+  const destination = receiver.mesh.position.clone().add(new THREE.Vector3(state.passComplete ? 0 : 2.4, state.passComplete ? 1.45 : 0.12, 0))
+  thrownFootball.position.lerpVectors(passStart, destination, progress)
+  thrownFootball.position.y += Math.sin(progress * Math.PI) * 4.2
+  thrownFootball.rotation.x += delta * 22
+  if (progress < 1) return
+
+  state.throwing = false
+  thrownFootball.visible = false
+  state.running = false
+  if (!state.passComplete) {
+    state.down += 1
+    if (state.down > 4) {
+      statusText.textContent = 'GAME OVER — four downs without a first down.'
+      updateHud()
+      window.setTimeout(resetDrive, 1800)
+    } else {
+      state.selectedPlay = null
+      playCall.classList.remove('is-hidden')
+      statusText.textContent = `Incomplete pass. ${state.down}${state.down === 2 ? 'nd' : state.down === 3 ? 'rd' : 'th'} down — pick another play.`
+      updateHud()
+    }
+    return
+  }
+  state.playerX = receiver.mesh.position.x
+  state.cameraZ = receiver.mesh.position.z + 4
+  camera.position.set(state.playerX, 2.35, state.cameraZ)
+  camera.lookAt(state.playerX, 1.8, state.cameraZ - 42)
+  state.yards = Math.min(100, Math.max(0, Math.round(8 - state.cameraZ)))
+  if (state.yards >= 100) {
+    state.score += 1
+    statusText.textContent = 'TOUCHDOWN! Hit New Drive for another play.'
+  } else {
+    state.selectedPlay = null
+    if (state.yards - state.firstDownYards >= 10) {
+      state.firstDownYards = state.yards
+      state.down = 1
+      statusText.textContent = `Complete! First down at the ${state.yards}-yard line. Pick the next play.`
+    } else {
+      state.down += 1
+      if (state.down > 4) {
+        statusText.textContent = 'GAME OVER — four downs without a first down.'
+        updateHud()
+        window.setTimeout(resetDrive, 1800)
+        return
+      }
+      statusText.textContent = `Complete! Ball at the ${state.yards}-yard line. ${state.down}${state.down === 2 ? 'nd' : state.down === 3 ? 'rd' : 'th'} down.`
+    }
+    playCall.classList.remove('is-hidden')
+  }
+  updateHud()
 }
 
 function updateHud() {
   scoreEl.textContent = String(state.score)
   yardsEl.textContent = `${Math.min(Math.floor(state.yards), 100)} / 100`
+  downEl.textContent = `${Math.min(state.down, 4)} / 4`
 }
 
 function updateGame(delta: number) {
   if (!state.running) return
+  updateReceivers(delta)
+  if (state.throwing) {
+    updatePass(delta)
+    return
+  }
   const direction = (keys.left ? -1 : 0) + (keys.right ? 1 : 0)
   const speed = (keys.sprint ? 31 : 20) * delta
   state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12, -22, 22)
@@ -459,6 +702,12 @@ resize()
 window.addEventListener('resize', resize)
 window.addEventListener('keydown', (event) => {
   startAudio()
+  if (['1', '2', '3'].includes(event.key) && state.running && !state.throwing) {
+    const receiver = receivers[Number(event.key) - 1]
+    if (receiver) throwTo(receiver)
+    event.preventDefault()
+    return
+  }
   if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') keys.left = true
   if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') keys.right = true
   if (event.key === ' ' || event.key.toLowerCase() === 'shift') keys.sprint = true
@@ -484,5 +733,19 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-move]')
   button.addEventListener('pointerleave', () => setActive(false))
   button.addEventListener('pointercancel', () => setActive(false))
 }
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-play]')) {
+  button.addEventListener('click', () => startPlay(button.dataset.play as PlayId))
+}
+canvas.addEventListener('pointerdown', (event) => {
+  if (!state.running || state.throwing || receivers.length === 0) return
+  const bounds = canvas.getBoundingClientRect()
+  pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)
+  passRaycaster.setFromCamera(pointer, camera)
+  const hits = passRaycaster.intersectObjects(receivers.map((receiver) => receiver.target), false)
+  if (hits.length > 0) {
+    const receiver = receivers.find((candidate) => candidate.target === hits[0].object)
+    if (receiver) throwTo(receiver)
+  }
+})
 resetButton.addEventListener('click', resetDrive)
 requestAnimationFrame(frame)
