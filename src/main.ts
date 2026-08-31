@@ -6,6 +6,7 @@ type Defender = {
   x: number
   z: number
   runPhase: number
+  football: THREE.Mesh
 }
 
 type Lineman = {
@@ -40,13 +41,19 @@ type CrowdMember = {
 
 type PlayId = 'slant' | 'verticals' | 'flood' | 'run'
 
+const USER_GOAL_LINE_Z = 8
+const OPPONENT_GOAL_LINE_Z = -92
+const USER_TWENTY_Z = USER_GOAL_LINE_Z - 20
+const OPPONENT_TWENTY_Z = OPPONENT_GOAL_LINE_Z + 20
+
 const app = document.querySelector<HTMLDivElement>('#app')!
 
 app.innerHTML = `
   <div class="game-shell">
     <header class="top-bar">
-      <div class="score-card"><span class="label">Score</span><strong id="score">0</strong></div>
-      <div class="score-card"><span class="label">Yards</span><strong id="yards">0 / 100</strong></div>
+      <div class="score-card"><span class="label">Your score</span><strong id="score">0</strong></div>
+      <div class="score-card"><span class="label">Opponent</span><strong id="opponentScore">0</strong></div>
+      <div class="score-card"><span id="yardsLabel" class="label">Yards</span><strong id="yards">0 / 100</strong></div>
       <div class="score-card"><span class="label">Down</span><strong id="down">1 / 4</strong></div>
       <button id="resetButton" class="reset-button" type="button">New Drive</button>
     </header>
@@ -78,6 +85,8 @@ app.innerHTML = `
 
 const canvas = document.querySelector<HTMLCanvasElement>('#gameCanvas')!
 const scoreEl = document.querySelector<HTMLElement>('#score')!
+const opponentScoreEl = document.querySelector<HTMLElement>('#opponentScore')!
+const yardsLabelEl = document.querySelector<HTMLElement>('#yardsLabel')!
 const yardsEl = document.querySelector<HTMLElement>('#yards')!
 const downEl = document.querySelector<HTMLElement>('#down')!
 const statusText = document.querySelector<HTMLElement>('#statusText')!
@@ -101,6 +110,8 @@ const pointer = new THREE.Vector2()
 const keys = { left: false, right: false, forward: false, backward: false, sprint: false }
 const state = {
   score: 0,
+  opponentScore: 0,
+  possession: 'offense' as 'offense' | 'defense',
   yards: 0,
   down: 1,
   firstDownYards: 0,
@@ -114,6 +125,10 @@ const state = {
   passTime: 0,
   passTarget: null as Receiver | null,
   passComplete: true,
+  defenseStartZ: 0,
+  defenseFirstDownZ: 0,
+  defenseDown: 1,
+  ballCarrier: null as Defender | null,
 }
 let playerFootball: THREE.Mesh
 let thrownFootball: THREE.Mesh
@@ -207,11 +222,11 @@ function fieldNumber(text: string) {
 
 function createField() {
   const field = new THREE.Mesh(
-    new THREE.PlaneGeometry(53.3, 110),
+    new THREE.PlaneGeometry(53.3, 120),
     new THREE.MeshStandardMaterial({ color: 0x168044, roughness: 0.95 }),
   )
   field.rotation.x = -Math.PI / 2
-  field.position.set(0, 0, -47)
+  field.position.set(0, 0, -42)
   world.add(field)
 
   const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })
@@ -241,9 +256,9 @@ function createField() {
   }
 
   for (const x of [-26.7, 26.7]) {
-    const sideline = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 110), lineMaterial)
+    const sideline = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 120), lineMaterial)
     sideline.rotation.x = -Math.PI / 2
-    sideline.position.set(x, 0.03, -47)
+    sideline.position.set(x, 0.03, -42)
     world.add(sideline)
   }
 
@@ -259,6 +274,19 @@ function createField() {
   touchdown.rotation.x = -Math.PI / 2
   touchdown.scale.set(11, 3.5, 1)
   world.add(touchdown)
+
+  const homeEndZone = new THREE.Mesh(
+    new THREE.PlaneGeometry(53.3, 10),
+    new THREE.MeshStandardMaterial({ color: 0xf97316 }),
+  )
+  homeEndZone.rotation.x = -Math.PI / 2
+  homeEndZone.position.set(0, 0.02, 13)
+  world.add(homeEndZone)
+  const homeEndZoneLabel = labelSprite('BOO THE BEARS', '#fff7ed')
+  homeEndZoneLabel.position.set(0, 0.08, 13)
+  homeEndZoneLabel.rotation.x = -Math.PI / 2
+  homeEndZoneLabel.scale.set(10, 2.8, 1)
+  world.add(homeEndZoneLabel)
 }
 
 function createStadium() {
@@ -396,7 +424,7 @@ function createStadium() {
   }
 }
 
-function createDefender(x: number, z: number, color: number, number: number) {
+function createDefender(x: number, z: number, color: number, number: number, hasFootball = false) {
   const group = new THREE.Group()
   const uniform = new THREE.MeshStandardMaterial({ color })
   const dark = new THREE.MeshStandardMaterial({ color: 0x111827 })
@@ -439,9 +467,35 @@ function createDefender(x: number, z: number, color: number, number: number) {
     shoe.position.set(legX, 0.06, 0.16)
     group.add(shoe)
   }
+  const football = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 14, 9),
+    new THREE.MeshStandardMaterial({ color: 0x8b451f, roughness: 0.7 }),
+  )
+  football.scale.set(0.72, 1.35, 0.72)
+  football.position.set(0.42, 1.08, -0.42)
+  football.rotation.z = -0.5
+  football.visible = hasFootball
+  group.add(football)
+  if (hasFootball) {
+    const ballMarker = new THREE.Mesh(
+      new THREE.RingGeometry(0.95, 1.25, 24),
+      new THREE.MeshBasicMaterial({ color: 0xfef08a, side: THREE.DoubleSide, transparent: true, opacity: 0.95 }),
+    )
+    ballMarker.rotation.x = -Math.PI / 2
+    ballMarker.position.y = 0.05
+    group.add(ballMarker)
+    const ballLabel = labelSprite('BALL CARRIER', '#fef08a')
+    ballLabel.position.set(0, 3.8, 0)
+    ballLabel.scale.set(2.6, 0.75, 1)
+    ballLabel.renderOrder = 3
+    ;(ballLabel.material as THREE.SpriteMaterial).depthTest = false
+    group.add(ballLabel)
+  }
   group.position.set(x, 0, z)
   world.add(group)
-  defenders.push({ mesh: group, x, z, runPhase: randomBetween(0, Math.PI * 2) })
+  const defender = { mesh: group, x, z, runPhase: randomBetween(0, Math.PI * 2), football }
+  defenders.push(defender)
+  return defender
 }
 
 function playCrowdCheer() {
@@ -596,13 +650,107 @@ function buildDefense() {
   }
 }
 
-function resetDrive() {
+function clearPlayers() {
+  while (defenders.length) world.remove(defenders.pop()!.mesh)
+  while (linemen.length) world.remove(linemen.pop()!.mesh)
+  while (receivers.length) world.remove(receivers.pop()!.mesh)
+}
+
+function startDefensiveSeries(spotZ: number, kickoff: boolean, newSeries = true) {
+  clearPlayers()
+  state.possession = 'defense'
+  state.running = true
+  state.selectedPlay = null
+  state.throwing = false
+  state.passTarget = null
+  state.playTime = 0
+  if (newSeries) {
+    state.defenseStartZ = spotZ
+    state.defenseFirstDownZ = spotZ
+    state.defenseDown = 1
+  }
+  // Start behind their runner so defense is a pursuit, not a head-on collision.
+  state.cameraZ = Math.max(-92, spotZ - 11)
+  state.playerX = 0
+  playerFootball.visible = false
+  thrownFootball.visible = false
+
+  for (let index = 0; index < 8; index += 1) {
+    const x = index === 0 ? randomBetween(-12, 12) : randomBetween(-20, 20)
+    const z = spotZ + (index === 0 ? 0 : 5 + index * 2.8)
+    const opponent = createDefender(x, z, index === 0 ? 0xdc2626 : 0xf97316, 10 + index, index === 0)
+    if (index === 0) state.ballCarrier = opponent
+  }
+  camera.position.set(0, 2.35, state.cameraZ)
+  camera.lookAt(0, 1.8, state.cameraZ + 42)
+  playerView.position.x = 0
+  playerView.rotation.z = 0
+  playCall.classList.add('is-hidden')
+  if (newSeries) {
+    statusText.textContent = kickoff
+      ? 'KICKOFF — opponent ball at their 20. Chase down the red ball carrier!'
+      : 'TURNOVER ON DOWNS — opponent ball at their 20. Make the tackle!'
+  } else {
+    statusText.textContent = `Opponent ${state.defenseDown}${state.defenseDown === 1 ? 'st' : state.defenseDown === 2 ? 'nd' : state.defenseDown === 3 ? 'rd' : 'th'} down — stop the red ball carrier.`
+  }
+  updateHud()
+}
+
+function turnOverOnDowns() {
+  state.running = false
+  statusText.textContent = 'TURNOVER ON DOWNS — get ready to play defense!'
+  updateHud()
+  window.setTimeout(() => startDefensiveSeries(OPPONENT_TWENTY_Z, false), 1200)
+}
+
+function scoreTouchdown() {
+  state.running = false
+  state.score += 1
+  statusText.textContent = 'TOUCHDOWN!!! Kicking off — get ready to play defense.'
+  updateHud()
+  window.setTimeout(() => startDefensiveSeries(OPPONENT_TWENTY_Z, true), 1400)
+}
+
+function finishDefensivePlay(tackled: boolean) {
+  state.running = false
+  if (tackled) {
+    const spotZ = state.ballCarrier?.z ?? state.defenseFirstDownZ
+    const earnedFirstDown = spotZ - state.defenseFirstDownZ >= 10
+    if (earnedFirstDown) {
+      state.defenseDown = 1
+      state.defenseFirstDownZ = spotZ
+      statusText.textContent = 'TACKLE! Opponent earned a first down and stays on offense.'
+      updateHud()
+      window.setTimeout(() => startDefensiveSeries(spotZ, false, false), 1200)
+      return
+    }
+    state.defenseDown += 1
+    if (state.defenseDown <= 4) {
+      statusText.textContent = `TACKLE! Opponent faces ${state.defenseDown}${state.defenseDown === 2 ? 'nd' : state.defenseDown === 3 ? 'rd' : 'th'} down.`
+      updateHud()
+      window.setTimeout(() => startDefensiveSeries(spotZ, false, false), 1200)
+      return
+    }
+    statusText.textContent = 'TURNOVER ON DOWNS! Your offense takes over at your 20.'
+    updateHud()
+    window.setTimeout(() => resetDrive(), 1200)
+    return
+  }
+  state.opponentScore += 1
+  statusText.textContent = 'OPPONENT TOUCHDOWN — your offense gets the next drive.'
+  updateHud()
+  window.setTimeout(() => resetDrive(), 1400)
+}
+
+function resetDrive(startZ = USER_TWENTY_Z) {
   startAudio()
-  state.yards = 0
+  state.yards = Math.max(0, Math.round(8 - startZ))
   state.down = 1
   state.firstDownYards = 0
   state.playerX = 0
-  state.cameraZ = 8
+  state.cameraZ = startZ
+  state.possession = 'offense'
+  state.ballCarrier = null
   state.running = false
   state.playTime = 0
   state.selectedPlay = null
@@ -696,9 +844,7 @@ function updatePass(delta: number) {
   if (!state.passComplete) {
     state.down += 1
     if (state.down > 4) {
-      statusText.textContent = 'GAME OVER — four downs without a first down.'
-      updateHud()
-      window.setTimeout(resetDrive, 1800)
+      turnOverOnDowns()
     } else {
       state.selectedPlay = null
       playCall.classList.remove('is-hidden')
@@ -714,8 +860,7 @@ function updatePass(delta: number) {
   camera.lookAt(state.playerX, 1.8, state.cameraZ - 42)
   state.yards = Math.min(100, Math.max(0, Math.round(8 - state.cameraZ)))
   if (state.yards >= 100) {
-    state.score += 1
-    statusText.textContent = 'TOUCHDOWN!!! Hit New Drive for another play.'
+    scoreTouchdown()
   } else {
     state.selectedPlay = null
     if (state.yards - state.firstDownYards >= 10) {
@@ -725,9 +870,7 @@ function updatePass(delta: number) {
     } else {
       state.down += 1
       if (state.down > 4) {
-        statusText.textContent = 'GAME OVER — four downs without a first down.'
-        updateHud()
-        window.setTimeout(resetDrive, 1800)
+        turnOverOnDowns()
         return
       }
       statusText.textContent = `Complete! Ball at the ${state.yards}-yard line. ${state.down}${state.down === 2 ? 'nd' : state.down === 3 ? 'rd' : 'th'} down.`
@@ -739,6 +882,15 @@ function updatePass(delta: number) {
 
 function updateHud() {
   scoreEl.textContent = String(state.score)
+  opponentScoreEl.textContent = String(state.opponentScore)
+  if (state.possession === 'defense') {
+    const allowedYards = Math.max(0, Math.floor((state.ballCarrier?.z ?? state.defenseStartZ) - state.defenseStartZ))
+    yardsLabelEl.textContent = 'Allowed'
+    yardsEl.textContent = `${allowedYards} yd`
+    downEl.textContent = `${state.defenseDown} / 4`
+    return
+  }
+  yardsLabelEl.textContent = 'Yards'
   yardsEl.textContent = `${Math.min(Math.floor(state.yards), 100)} / 100`
   downEl.textContent = `${Math.min(state.down, 4)} / 4`
 }
@@ -753,9 +905,7 @@ function finishRunPlay() {
   } else {
     state.down += 1
     if (state.down > 4) {
-      statusText.textContent = 'GAME OVER — four downs without a first down.'
-      updateHud()
-      window.setTimeout(resetDrive, 1800)
+      turnOverOnDowns()
       return
     }
     statusText.textContent = `Tackle! Ball at the ${Math.floor(state.yards)}-yard line. ${state.down}${state.down === 2 ? 'nd' : state.down === 3 ? 'rd' : 'th'} down — pick the next play.`
@@ -766,6 +916,10 @@ function finishRunPlay() {
 
 function updateGame(delta: number) {
   if (!state.running) return
+  if (state.possession === 'defense') {
+    updateDefense(delta)
+    return
+  }
   updateReceivers(delta)
   if (state.throwing) {
     updatePass(delta)
@@ -818,9 +972,59 @@ function updateGame(delta: number) {
   }
 
   if (state.yards >= 100) {
-    state.running = false
-    state.score += 1
-    statusText.textContent = 'TOUCHDOWN!!! Nice run.'
+    scoreTouchdown()
+  }
+  updateHud()
+}
+
+function updateDefense(delta: number) {
+  state.playTime += delta
+  // The defensive camera faces the opposite end zone, so horizontal world movement is mirrored.
+  const direction = (keys.left ? 1 : 0) + (keys.right ? -1 : 0)
+  const depthDirection = (keys.forward ? -1 : 0) + (keys.backward ? 1 : 0)
+  const speed = (keys.sprint ? 31 : 20) * delta
+  state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12, -22, 22)
+  state.cameraZ -= depthDirection * speed
+  camera.position.x += (state.playerX - camera.position.x) * Math.min(1, delta * 10)
+  camera.position.z = state.cameraZ
+  camera.lookAt(camera.position.x, 1.8, state.cameraZ + 42)
+  playerView.position.x = (state.playerX - camera.position.x) * 0.18
+  playerView.rotation.z = -direction * 0.04
+
+  footstepTimer -= delta
+  if ((direction !== 0 || depthDirection !== 0) && footstepTimer <= 0) {
+    playFootstep()
+    footstepTimer = keys.sprint ? 0.2 : 0.3
+  }
+
+  for (const opponent of defenders) {
+    const isBallCarrier = opponent === state.ballCarrier
+    opponent.z += (isBallCarrier ? 9.5 : 7.2) * delta
+    opponent.x = THREE.MathUtils.clamp(
+      opponent.x + Math.sin(state.playTime * 2.4 + opponent.runPhase) * (isBallCarrier ? 4 : 2) * delta,
+      -22,
+      22,
+    )
+    opponent.mesh.position.set(
+      opponent.x,
+      Math.abs(Math.sin(performance.now() * 0.012 + opponent.runPhase)) * 0.08,
+      opponent.z,
+    )
+    opponent.mesh.rotation.z = Math.sin(performance.now() * 0.012 + opponent.runPhase) * 0.035
+  }
+
+  const ballCarrier = state.ballCarrier
+  if (ballCarrier) {
+    // Contact with blockers is harmless: only a direct hit on the marked ball carrier is a tackle.
+    const closeEnough = Math.abs(ballCarrier.z - state.cameraZ) < 1.5 && Math.abs(ballCarrier.x - state.playerX) < 1.5
+    if (closeEnough) {
+      finishDefensivePlay(true)
+      return
+    }
+    if (ballCarrier.z >= USER_GOAL_LINE_Z) {
+      finishDefensivePlay(false)
+      return
+    }
   }
   updateHud()
 }
@@ -926,5 +1130,5 @@ canvas.addEventListener('pointerdown', (event) => {
     if (receiver) throwTo(receiver)
   }
 })
-resetButton.addEventListener('click', resetDrive)
+resetButton.addEventListener('click', () => resetDrive())
 requestAnimationFrame(frame)
