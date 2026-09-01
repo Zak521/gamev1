@@ -54,6 +54,7 @@ type SpecialPlayId = 'fieldGoal' | 'punt' | 'kneel'
 type PlayId = PassPlayId | RunPlayId | SpecialPlayId
 type PlayTab = 'pass' | 'run' | 'special'
 type DefenseCall = 'base' | 'blitz' | 'cover2' | 'goalline' | 'spy'
+type KickType = 'fieldGoal' | 'extraPoint'
 
 type OffensivePlay = { id: PlayId; name: string; blurb: string; tab: PlayTab }
 
@@ -89,7 +90,7 @@ const OPPONENT_GOAL_LINE_Z = -92
 const USER_TWENTY_Z = USER_GOAL_LINE_Z - 20
 
 // Game-structure tunables (see plan: Rules & game structure).
-const QUARTER_SECONDS = 300
+const QUARTER_SECONDS = 90
 const OT_SECONDS = 180
 const INTER_PLAY_RUNOFF = 25
 const PLAY_CLOCK_SECONDS = 40
@@ -145,6 +146,11 @@ app.innerHTML = `
     <div class="game-frame">
       <canvas id="gameCanvas" width="960" height="540" aria-label="3D first-person football game"></canvas>
       <div class="status-panel"><span id="statusText">Break through the defense!</span></div>
+      <div id="kickMeter" class="kick-meter is-hidden" aria-live="polite">
+        <span id="kickPrompt">Press Space to kick</span>
+        <div class="kick-track"><div id="kickFill" class="kick-fill"></div><i class="kick-sweet-spot"></i></div>
+        <small>Hit the gold zone for a clean kick</small>
+      </div>
       <div id="gameOverPanel" class="game-over is-hidden" role="dialog" aria-label="Final score">
         <span class="play-call-kicker">Final</span>
         <h2 id="gameOverTitle">Final</h2>
@@ -169,7 +175,7 @@ app.innerHTML = `
     </div>
     <div class="controls-panel">
       <div class="instructions">
-        <span>Move: Arrow keys or WASD</span><span>Sprint: Shift or Space</span><span>Goal: reach the end zone</span>
+        <span>Move: WASD or Arrow keys</span><span>Look: mouse (click field)</span><span>Sprint: Shift or Space</span><span>Goal: reach the end zone</span>
       </div>
       <div class="touch-controls">
         <button type="button" data-move="left">Left</button><button type="button" data-move="right">Right</button><button type="button" data-move="sprint">Sprint</button>
@@ -187,6 +193,9 @@ const downEl = document.querySelector<HTMLElement>('#down')!
 const quarterEl = document.querySelector<HTMLElement>('#quarter')!
 const clockEl = document.querySelector<HTMLElement>('#clock')!
 const statusText = document.querySelector<HTMLElement>('#statusText')!
+const kickMeter = document.querySelector<HTMLDivElement>('#kickMeter')!
+const kickPrompt = document.querySelector<HTMLElement>('#kickPrompt')!
+const kickFill = document.querySelector<HTMLDivElement>('#kickFill')!
 const resetButton = document.querySelector<HTMLButtonElement>('#resetButton')!
 const playCall = document.querySelector<HTMLDivElement>('#playCall')!
 const playCallKicker = document.querySelector<HTMLElement>('#playCallKicker')!
@@ -215,6 +224,27 @@ let crowdHeadMesh: THREE.InstancedMesh | null = null
 const crowdTransform = new THREE.Object3D()
 const passRaycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
+let viewYaw = 0
+let viewPitch = 0
+
+function aimCamera() {
+  const distance = 42
+  camera.lookAt(
+    camera.position.x + Math.sin(viewYaw) * distance,
+    camera.position.y + viewPitch * distance,
+    camera.position.z - Math.cos(viewYaw) * distance,
+  )
+}
+
+function resetView() {
+  viewYaw = 0
+  viewPitch = 0
+  aimCamera()
+}
+
+function releaseMouse() {
+  if (document.pointerLockElement === canvas) document.exitPointerLock()
+}
 
 const keys = { left: false, right: false, forward: false, backward: false, sprint: false }
 const state = {
@@ -266,6 +296,10 @@ const state = {
   lastPlayStoppedClock: true,
   gameOver: false,
   firstPossession: 'offense' as 'offense' | 'defense',
+  kickType: null as KickType | null,
+  kickPower: 0,
+  kickDistance: 0,
+  opponentPlay: 'Inside Run',
 }
 let playerFootball: THREE.Mesh
 let thrownFootball: THREE.Mesh
@@ -403,12 +437,12 @@ function createField() {
 
   const endZone = new THREE.Mesh(
     new THREE.PlaneGeometry(53.3, 10),
-    new THREE.MeshStandardMaterial({ color: 0x4c1d95 }),
+    new THREE.MeshStandardMaterial({ color: 0xf97316 }),
   )
   endZone.rotation.x = -Math.PI / 2
   endZone.position.set(0, 0.02, -97)
   world.add(endZone)
-  const touchdown = labelSprite('GO VIKINGS', '#fef08a')
+  const touchdown = labelSprite('BOO BEARS', '#fff7ed')
   touchdown.position.set(0, 0.08, -97)
   touchdown.rotation.x = -Math.PI / 2
   touchdown.scale.set(11, 3.5, 1)
@@ -416,16 +450,38 @@ function createField() {
 
   const homeEndZone = new THREE.Mesh(
     new THREE.PlaneGeometry(53.3, 10),
-    new THREE.MeshStandardMaterial({ color: 0xf97316 }),
+    new THREE.MeshStandardMaterial({ color: 0x4c1d95 }),
   )
   homeEndZone.rotation.x = -Math.PI / 2
   homeEndZone.position.set(0, 0.02, 13)
   world.add(homeEndZone)
-  const homeEndZoneLabel = labelSprite('BOO THE BEARS', '#fff7ed')
+  const homeEndZoneLabel = labelSprite('GO VIKINGS', '#fef08a')
   homeEndZoneLabel.position.set(0, 0.08, 13)
   homeEndZoneLabel.rotation.x = -Math.PI / 2
   homeEndZoneLabel.scale.set(10, 2.8, 1)
   world.add(homeEndZoneLabel)
+
+  createGoalPost(-102, 1)
+  createGoalPost(18, -1)
+}
+
+function createGoalPost(z: number, facing: number) {
+  const gold = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.45, roughness: 0.3 })
+  const post = new THREE.Group()
+  const addBar = (x: number, y: number, length: number, horizontal = false) => {
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, length, 10), gold)
+    bar.position.set(x, y, 0)
+    if (horizontal) bar.rotation.z = Math.PI / 2
+    post.add(bar)
+  }
+  // The support is behind the end line; the uprights frame every kick from either direction.
+  addBar(0, 4, 8)
+  addBar(0, 7.2, 18.5, true)
+  addBar(-9.25, 12, 9.6)
+  addBar(9.25, 12, 9.6)
+  post.position.set(0, 0, z)
+  post.rotation.y = facing === 1 ? 0 : Math.PI
+  world.add(post)
 }
 
 function createStadium() {
@@ -839,6 +895,7 @@ function clearPlayers() {
 
 function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSeries = true) {
   if (state.gameOver) return
+  releaseMouse()
   clearPlayers()
   state.possession = 'defense'
   state.running = false
@@ -857,14 +914,22 @@ function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSeries = tru
     state.defenseFirstDownZ = spotZ
     state.defenseDown = 1
   }
-  // Start behind their runner so defense is a pursuit, not a head-on collision.
-  state.cameraZ = Math.max(-92, spotZ - 11)
+  const opponentCalls = [
+    { name: 'Inside Run', lane: 0, speed: 13.2 },
+    { name: 'Sweep Right', lane: 14, speed: 14.1 },
+    { name: 'Sweep Left', lane: -14, speed: 14.1 },
+    { name: 'Draw Play', lane: randomBetween(-5, 5), speed: 12.5 },
+  ]
+  const opponentCall = opponentCalls[Math.floor(Math.random() * opponentCalls.length)]
+  state.opponentPlay = opponentCall.name
+  // Start on the defensive side and face the runner so every snap is a tackle attempt.
+  state.cameraZ = Math.min(6, spotZ + 15)
   state.playerX = 0
   state.playerBlockedUntil = 0
   state.carrierJukeVX = 0
   state.carrierJukeUntil = 0
   state.carrierNextJuke = 1
-  state.carrierLaneX = randomBetween(-6, 6)
+  state.carrierLaneX = opponentCall.lane
   state.bigPlayAllowed = true
   playerFootball.visible = false
   thrownFootball.visible = false
@@ -874,7 +939,7 @@ function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSeries = tru
     const x = index === 0 ? randomBetween(-10, 10) : randomBetween(-16, 16)
     const z = spotZ + (index === 0 ? 0 : 4 + index * 2.6)
     const opponent = createDefender(x, z, index === 0 ? 0xdc2626 : 0xf97316, 10 + index, index === 0)
-    opponent.speed = index === 0 ? 13.5 : 11
+    opponent.speed = index === 0 ? opponentCall.speed : 11
     if (index === 0) state.ballCarrier = opponent
   }
   // Your pursuit help, spread across the field a few yards ahead of you.
@@ -884,17 +949,17 @@ function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSeries = tru
     t.speed = 13
   }
   camera.position.set(0, 2.35, state.cameraZ)
-  camera.lookAt(0, 1.8, state.cameraZ + 42)
+  resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
   playCall.classList.add('is-hidden')
   const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
   defenseKicker.textContent = newSeries
-    ? `Defense · opponent ball on the ${describeSpot(ballOnFromZ(spotZ))}`
-    : `Defense · opponent ${ordinal(state.defenseDown)} & ${togo} on the ${describeSpot(ballOnFromZ(spotZ))}`
-  statusText.textContent = newSeries && isKickoff
-    ? `Opponent ball on the ${describeSpot(ballOnFromZ(spotZ))}. Call your defense.`
-    : `Opponent ${ordinal(state.defenseDown)} & ${togo} on the ${describeSpot(ballOnFromZ(spotZ))}. Call your defense.`
+    ? `Opponent chose ${state.opponentPlay} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
+    : `Opponent chose ${state.opponentPlay} · ${ordinal(state.defenseDown)} & ${togo}`
+  statusText.textContent = isKickoff
+    ? `Kickoff return: opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
+    : `Opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
   renderDefenseOptions()
   defenseCall.classList.remove('is-hidden')
   updateHud()
@@ -949,6 +1014,7 @@ function endGame() {
   }
   state.gameOver = true
   state.running = false
+  releaseMouse()
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   const won = state.score > state.opponentScore
@@ -996,6 +1062,8 @@ function startGame() {
   state.playClock = PLAY_CLOCK_SECONDS
   state.clockEventHandled = false
   state.gameOver = false
+  state.kickType = null
+  kickMeter.classList.add('is-hidden')
   state.firstPossession = Math.random() < 0.5 ? 'offense' : 'defense'
   gameOverPanel.classList.add('is-hidden')
   playCall.classList.add('is-hidden')
@@ -1035,6 +1103,7 @@ function gainTo(newBallOn: number, lead = '', clockStops = false) {
 
 function offensiveMenu(lead: string) {
   state.running = false
+  releaseMouse()
   state.selectedPlay = null
   state.throwing = false
   state.playClock = PLAY_CLOCK_SECONDS
@@ -1074,10 +1143,53 @@ function attemptFieldGoal() {
   state.running = false
   playCall.classList.add('is-hidden')
   const dist = Math.round(100 - state.ballOn + 17)
-  const pMade = THREE.MathUtils.clamp(1.05 - (dist - 20) * 0.017, 0.02, 0.99)
-  if (Math.random() < pMade) {
-    state.score += 3
-    statusText.textContent = `${dist}-yard field goal is GOOD! You lead ${state.score}-${state.opponentScore}.`
+  startKick('fieldGoal', dist)
+}
+
+function startKick(type: KickType, distance: number) {
+  state.running = false
+  state.kickType = type
+  state.kickDistance = distance
+  state.kickPower = 0
+  // After a touchdown, spot the extra-point attempt at the 2-yard line.
+  if (type === 'extraPoint') {
+    state.ballOn = 98
+    state.cameraZ = losZ(state.ballOn)
+  }
+  keys.sprint = false
+  // Put the kicking unit on the field before the player takes the kick.
+  // The goal post stays directly ahead, with the purple line protecting the holder.
+  clearPlayers()
+  state.playerX = 0
+  camera.position.set(0, 2.35, state.cameraZ)
+  resetView()
+  playerView.position.x = 0
+  playerView.rotation.z = 0
+  for (const [index, x] of [-7.2, -3.6, 0, 3.6, 7.2].entries()) {
+    createLineman(x, state.cameraZ - 4.8, 70 + index)
+  }
+  // A second purple player beside the holder makes the extra-point unit feel set.
+  createLineman(2.8, state.cameraZ - 2.8, 88)
+  playerFootball.visible = true
+  thrownFootball.visible = false
+  kickPrompt.textContent = `${type === 'extraPoint' ? 'Extra point' : `${distance}-yard field goal`} — press Space to kick`
+  kickFill.style.width = '0%'
+  kickMeter.classList.remove('is-hidden')
+  statusText.textContent = `Line up the ${type === 'extraPoint' ? 'extra point' : 'field goal'} — time the meter!`
+}
+
+function resolveKick() {
+  const type = state.kickType
+  if (!type) return
+  const distance = state.kickDistance
+  const timing = 1 - Math.min(1, Math.abs(state.kickPower - 54) / 13)
+  const distanceChance = type === 'extraPoint' ? 0.97 : THREE.MathUtils.clamp(1.04 - (distance - 20) * 0.016, 0.05, 0.98)
+  const made = Math.random() < distanceChance * (0.18 + timing * 0.82)
+  state.kickType = null
+  kickMeter.classList.add('is-hidden')
+  if (made) {
+    state.score += type === 'extraPoint' ? 1 : 3
+    statusText.textContent = `${type === 'extraPoint' ? 'EXTRA POINT' : `${distance}-YARD FIELD GOAL`} IS GOOD! You lead ${state.score}-${state.opponentScore}.`
     updateHud()
     if (state.quarter >= 5) {
       schedule(endGame, 1600)
@@ -1086,9 +1198,15 @@ function attemptFieldGoal() {
     schedule(() => kickoff('defense'), 1500)
     return
   }
+  if (type === 'extraPoint') {
+    statusText.textContent = 'Extra point is NO GOOD. Kicking off.'
+    updateHud()
+    schedule(() => kickoff('defense'), 1500)
+    return
+  }
   // Missed: opponent takes over at the spot of the hold, but no closer than their 20.
   const oppYard = Math.max(20, 108 - state.ballOn)
-  giveBallToOpponent(oppYard, `${dist}-yard field goal is NO GOOD. Opponent takes over.`)
+  giveBallToOpponent(oppYard, `${distance}-yard field goal is NO GOOD. Opponent takes over.`)
 }
 
 function puntBall() {
@@ -1120,15 +1238,9 @@ function turnOverOnDowns() {
 function scoreTouchdown() {
   state.running = false
   state.score += 6
-  const patGood = Math.random() < 0.94
-  if (patGood) state.score += 1
-  statusText.textContent = `TOUCHDOWN! Extra point ${patGood ? 'is good' : 'is no good'} — you lead ${state.score}-${state.opponentScore}. Kicking off.`
+  statusText.textContent = `TOUCHDOWN! You lead ${state.score}-${state.opponentScore}. Set up for the extra point.`
   updateHud()
-  if (state.quarter >= 5) {
-    schedule(endGame, 1600)
-    return
-  }
-  schedule(() => kickoff('defense'), 1500)
+  schedule(() => startKick('extraPoint', 33), 900)
 }
 
 function finishDefensivePlay(tackled: boolean) {
@@ -1172,6 +1284,7 @@ function finishDefensivePlay(tackled: boolean) {
 function resetDrive(startZ = USER_TWENTY_Z) {
   startAudio()
   if (state.gameOver) return
+  releaseMouse()
   state.ballOn = ballOnFromZ(startZ)
   state.firstDownTarget = Math.min(state.ballOn + 10, 100)
   state.down = 1
@@ -1207,7 +1320,7 @@ function lineUpForSnap() {
   playerFootball.visible = true
   thrownFootball.visible = false
   camera.position.set(0, 2.35, state.cameraZ)
-  camera.lookAt(0, 1.8, state.cameraZ - 42)
+  resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
   buildDefense()
@@ -1262,7 +1375,7 @@ function snapDefense(call: DefenseCall) {
     teammate.speed = c.teamSpeed
     teammate.role = call === 'spy' && index === 0 ? 'spy' : 'man'
   })
-  statusText.textContent = `${DEFENSE_PLAYBOOK.find((d) => d.id === call)?.name} — chase down the red ball carrier!`
+  statusText.textContent = `${DEFENSE_PLAYBOOK.find((d) => d.id === call)?.name} versus ${state.opponentPlay} — meet the runner and make the tackle!`
   updateHud()
 }
 
@@ -1428,7 +1541,7 @@ function updatePass(delta: number) {
   state.playerX = receiver.mesh.position.x
   state.cameraZ = receiver.mesh.position.z + 4
   camera.position.set(state.playerX, 2.35, state.cameraZ)
-  camera.lookAt(state.playerX, 1.8, state.cameraZ - 42)
+  aimCamera()
   const outOfBounds = Math.abs(state.playerX) >= 24
   gainTo(ballOnFromZ(state.cameraZ), 'Complete!', outOfBounds)
 }
@@ -1536,7 +1649,7 @@ function updateGame(delta: number) {
   state.prevDirection = direction
   camera.position.x += (state.playerX - camera.position.x) * Math.min(1, delta * 10)
   camera.position.z = state.cameraZ
-  camera.lookAt(camera.position.x, 1.8, state.cameraZ - 42)
+  aimCamera()
   playerView.position.x = (state.playerX - camera.position.x) * 0.18
   playerView.rotation.z = -direction * 0.04
   if (isRunPlay || direction !== 0 || depthDirection !== 0) {
@@ -1644,16 +1757,16 @@ function updateGame(delta: number) {
 
 function updateDefense(delta: number) {
   state.playTime += delta
-  // The defensive camera faces the opposite end zone, so horizontal world movement is mirrored.
+  // On defense you face the offense, so forward takes you into the gap toward the runner.
   const direction = (keys.left ? 1 : 0) + (keys.right ? -1 : 0)
-  const depthDirection = (keys.forward ? -1 : 0) + (keys.backward ? 1 : 0)
+  const depthDirection = (keys.forward ? 1 : 0) + (keys.backward ? -1 : 0)
   const blocked = state.playerBlockedUntil > state.playTime
   const perSecond = (keys.sprint ? 17 : 12) * (blocked ? 0.45 : 1)
   state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * (blocked ? 0.4 : 1), -22, 22)
   state.cameraZ -= depthDirection * perSecond * delta
   camera.position.x += (state.playerX - camera.position.x) * Math.min(1, delta * 10)
   camera.position.z = state.cameraZ
-  camera.lookAt(camera.position.x, 1.8, state.cameraZ + 42)
+  aimCamera()
   playerView.position.x = (state.playerX - camera.position.x) * 0.18
   playerView.rotation.z = -direction * 0.04
 
@@ -1811,6 +1924,11 @@ function frame(time: number) {
   const delta = Math.min((time - state.lastTime) / 1000 || 0.016, 0.04)
   state.lastTime = time
   tickClocks(delta)
+  if (state.kickType) {
+    // The marker sweeps back and forth; Space locks in the current timing.
+    state.kickPower = (Math.sin(time * 0.006) * 0.5 + 0.5) * 100
+    kickFill.style.width = `${state.kickPower}%`
+  }
   updateGame(delta)
   updateCrowd(time)
   if (!state.gameOver && state.running) updateHud()
@@ -1834,8 +1952,19 @@ createPlayerView()
 startGame()
 resize()
 window.addEventListener('resize', resize)
+document.addEventListener('mousemove', (event) => {
+  if (document.pointerLockElement !== canvas) return
+  viewYaw -= event.movementX * 0.0025
+  viewPitch = THREE.MathUtils.clamp(viewPitch - event.movementY * 0.0018, -0.28, 0.22)
+  aimCamera()
+})
 window.addEventListener('keydown', (event) => {
   startAudio()
+  if (event.key === ' ' && state.kickType) {
+    resolveKick()
+    event.preventDefault()
+    return
+  }
   if (['1', '2', '3'].includes(event.key) && state.running && !state.throwing) {
     const receiver = receivers[Number(event.key) - 1]
     if (receiver) throwTo(receiver)
@@ -1885,6 +2014,7 @@ for (const tab of playTabs.querySelectorAll<HTMLButtonElement>('button')) {
 renderPlayOptions()
 renderDefenseOptions()
 canvas.addEventListener('pointerdown', (event) => {
+  if (document.pointerLockElement !== canvas) canvas.requestPointerLock()
   if (!state.running || state.throwing || receivers.length === 0) return
   const bounds = canvas.getBoundingClientRect()
   pointer.set(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -((event.clientY - bounds.top) / bounds.height) * 2 + 1)

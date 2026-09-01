@@ -181,6 +181,29 @@ button {
   color: #f8fafc;
 }
 
+.kick-meter {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 26px;
+  width: min(360px, calc(100% - 36px));
+  transform: translateX(-50%);
+  padding: 11px 14px;
+  border: 1px solid rgba(251, 191, 36, 0.8);
+  border-radius: 14px;
+  background: rgba(2, 8, 23, 0.88);
+  color: #f8fafc;
+  text-align: center;
+  box-shadow: 0 12px 30px rgba(2, 8, 23, 0.52);
+}
+
+.kick-meter.is-hidden { display: none; }
+.kick-meter span { display: block; font-weight: 800; font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase; }
+.kick-meter small { color: #cbd5e1; font-size: 0.7rem; }
+.kick-track { position: relative; height: 15px; overflow: hidden; margin: 8px 0 5px; border-radius: 999px; background: #334155; }
+.kick-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ef4444, #fbbf24 45%, #22c55e 58%, #fbbf24 71%, #ef4444); }
+.kick-sweet-spot { position: absolute; inset: 0 auto 0 46%; width: 15%; border: 2px solid #fff; border-radius: 3px; pointer-events: none; }
+
 .play-call {
   position: absolute;
   inset: 0;
