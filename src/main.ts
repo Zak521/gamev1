@@ -95,6 +95,11 @@ const OT_SECONDS = 180
 const INTER_PLAY_RUNOFF = 25
 const PLAY_CLOCK_SECONDS = 40
 
+// Movement feel tunables: a global speed trim on every player, and the
+// first-person eye height (raise it to make "you" feel taller on the field).
+const MOVE_SCALE = 0.9
+const EYE_HEIGHT = 2.7
+
 function ordinal(n: number) {
   return n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`
 }
@@ -261,6 +266,7 @@ const state = {
   playTime: 0,
   selectedPlay: null as PlayId | null,
   throwing: false,
+  afterCatch: false,
   passTime: 0,
   passTarget: null as Receiver | null,
   passComplete: true,
@@ -299,6 +305,19 @@ const state = {
   kickType: null as KickType | null,
   kickPower: 0,
   kickDistance: 0,
+  // Live kick in flight toward the uprights (field goal / extra point).
+  kickFlight: null as null | {
+    t: number
+    dur: number
+    from: THREE.Vector3
+    ctrl: THREE.Vector3
+    to: THREE.Vector3
+    type: KickType
+    distance: number
+    made: boolean
+  },
+  // Brief window after a catch where you can't be tackled, so you get a step.
+  catchGraceUntil: 0,
   opponentPlay: 'Inside Run',
 }
 let playerFootball: THREE.Mesh
@@ -445,7 +464,7 @@ function createField() {
   const touchdown = labelSprite('BOO BEARS', '#fff7ed')
   touchdown.position.set(0, 0.08, -97)
   touchdown.rotation.x = -Math.PI / 2
-  touchdown.scale.set(11, 3.5, 1)
+  touchdown.scale.set(11, 3.3, 1)
   world.add(touchdown)
 
   const homeEndZone = new THREE.Mesh(
@@ -458,7 +477,7 @@ function createField() {
   const homeEndZoneLabel = labelSprite('GO VIKINGS', '#fef08a')
   homeEndZoneLabel.position.set(0, 0.08, 13)
   homeEndZoneLabel.rotation.x = -Math.PI / 2
-  homeEndZoneLabel.scale.set(10, 2.8, 1)
+  homeEndZoneLabel.scale.set(11, 3.3, 1)
   world.add(homeEndZoneLabel)
 
   createGoalPost(-102, 1)
@@ -509,9 +528,10 @@ function createStadium() {
   }
 
   // A deeper bowl makes the stadium feel full while retaining a clear field-level view.
+  // The front row sits back far enough to leave a sideline apron for the benches.
   for (const side of [-1, 1]) {
     for (let row = 0; row < 12; row += 1) {
-      const x = side * (29 + row * 1.18)
+      const x = side * (32 + row * 1.18)
       const y = 0.55 + row * 0.72
       const seats = new THREE.Mesh(
         new THREE.BoxGeometry(2.25, 1.15, 112),
@@ -527,7 +547,8 @@ function createStadium() {
 
   for (const end of [1, -1]) {
     for (let row = 0; row < 10; row += 1) {
-      const z = end === 1 ? 11.2 + row * 1.22 : -105.2 - row * 1.22
+      // Keep both end stands the same 3.2 units clear of their end-zone back line.
+      const z = end === 1 ? 21.2 + row * 1.22 : -105.2 - row * 1.22
       const y = 0.5 + row * 0.72
       const seats = new THREE.Mesh(
         new THREE.BoxGeometry(82, 1.12, 2.25),
@@ -565,7 +586,7 @@ function createStadium() {
     wall.position.set(x, 4.5, -47)
     world.add(wall)
   }
-  for (const z of [18, -112]) {
+  for (const z of [28, -112]) {
     const wall = new THREE.Mesh(new THREE.BoxGeometry(90, 13, 2.6), outerWallMaterial)
     wall.position.set(0, 4.5, z)
     world.add(wall)
@@ -621,6 +642,66 @@ function createStadium() {
       lamp.position.set(x, 23.15, z)
       world.add(lamp)
     }
+  }
+}
+
+// A single standing sideline figure: a benched player (with pads + helmet) or a
+// head coach (bare head, ball cap, khakis). Both wear their team's colors.
+function createSidelineFigure(x: number, z: number, jersey: number, trim: number, facing: number, isCoach: boolean) {
+  const group = new THREE.Group()
+  const jerseyMat = new THREE.MeshStandardMaterial({ color: jersey, roughness: 0.8 })
+  const trimMat = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.7 })
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.82, isCoach ? 1.15 : 1.45, 0.5), jerseyMat)
+  torso.position.y = isCoach ? 1.12 : 1.22
+  group.add(torso)
+  if (!isCoach) {
+    const pads = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 8), trimMat)
+    pads.scale.set(1, 0.34, 0.6)
+    pads.position.y = 1.95
+    group.add(pads)
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), trimMat)
+    helmet.position.y = 2.4
+    group.add(helmet)
+  } else {
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), skinMat)
+    head.position.y = 1.92
+    group.add(head)
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), jerseyMat)
+    cap.position.y = 2.02
+    group.add(cap)
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.3), jerseyMat)
+    brim.position.set(0, 1.99, 0.27)
+    group.add(brim)
+  }
+  for (const legX of [-0.22, 0.22]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, isCoach ? 1.15 : 0.95, 7), trimMat)
+    leg.position.set(legX, isCoach ? 0.58 : 0.42, 0)
+    group.add(leg)
+  }
+  group.position.set(x, 0, z)
+  group.rotation.y = facing
+  world.add(group)
+}
+
+// Benches and a head coach on each sideline, in the right team colors:
+// home Vikings in purple on the near sideline, away Boo Bears in orange.
+function createSidelines() {
+  const khaki = 0xcbb58a
+  const teams = [
+    { jersey: 0x8b5cf6, trim: 0x0f172a, coachTop: 0x4c1d95, sideX: -29, facing: Math.PI / 2 },
+    { jersey: 0xf97316, trim: 0x111827, coachTop: 0xc2410c, sideX: 29, facing: -Math.PI / 2 },
+  ]
+  for (const team of teams) {
+    const inward = team.sideX < 0 ? 1 : -1
+    // Two rows of players milling in the team area, spanning the 10s.
+    for (let i = 0; i < 16; i += 1) {
+      const z = -16 - i * 2.8
+      const x = team.sideX + inward * (i % 2) * 0.95
+      createSidelineFigure(x, z, team.jersey, team.trim, team.facing, false)
+    }
+    // Head coach a step in front of the bench, near midfield.
+    createSidelineFigure(team.sideX + inward * 1.7, -42, team.coachTop, khaki, team.facing, true)
   }
 }
 
@@ -948,7 +1029,7 @@ function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSeries = tru
     t.role = 'man'
     t.speed = 13
   }
-  camera.position.set(0, 2.35, state.cameraZ)
+  camera.position.set(0, EYE_HEIGHT, state.cameraZ)
   resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
@@ -1063,6 +1144,7 @@ function startGame() {
   state.clockEventHandled = false
   state.gameOver = false
   state.kickType = null
+  state.kickFlight = null
   kickMeter.classList.add('is-hidden')
   state.firstPossession = Math.random() < 0.5 ? 'offense' : 'defense'
   gameOverPanel.classList.add('is-hidden')
@@ -1151,6 +1233,7 @@ function startKick(type: KickType, distance: number) {
   state.kickType = type
   state.kickDistance = distance
   state.kickPower = 0
+  state.kickFlight = null
   // After a touchdown, spot the extra-point attempt at the 2-yard line.
   if (type === 'extraPoint') {
     state.ballOn = 98
@@ -1161,7 +1244,7 @@ function startKick(type: KickType, distance: number) {
   // The goal post stays directly ahead, with the purple line protecting the holder.
   clearPlayers()
   state.playerX = 0
-  camera.position.set(0, 2.35, state.cameraZ)
+  camera.position.set(0, EYE_HEIGHT, state.cameraZ)
   resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
@@ -1180,13 +1263,61 @@ function startKick(type: KickType, distance: number) {
 
 function resolveKick() {
   const type = state.kickType
-  if (!type) return
+  if (!type || state.kickFlight) return
   const distance = state.kickDistance
   const timing = 1 - Math.min(1, Math.abs(state.kickPower - 54) / 13)
   const distanceChance = type === 'extraPoint' ? 0.97 : THREE.MathUtils.clamp(1.04 - (distance - 20) * 0.016, 0.05, 0.98)
   const made = Math.random() < distanceChance * (0.18 + timing * 0.82)
   state.kickType = null
   kickMeter.classList.add('is-hidden')
+
+  // Send the ball on a visible arc toward the uprights; the outcome is settled
+  // once it lands (see updateKickFlight / settleKick).
+  const goalZ = OPPONENT_GOAL_LINE_Z - 10
+  const from = new THREE.Vector3(0, 0.35, state.cameraZ - 1.4)
+  const wide = made ? randomBetween(-1.1, 1.1) : (Math.random() < 0.5 ? -1 : 1) * randomBetween(6.5, 11)
+  const shortBy = made ? 0 : (Math.random() < 0.35 ? randomBetween(10, 22) : 0)
+  const to = new THREE.Vector3(wide, made ? 9 : shortBy ? 2.5 : 8.4, goalZ + shortBy)
+  const apex = Math.max(from.y, to.y) + THREE.MathUtils.clamp(distance * 0.14, 5, 11)
+  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
+  state.kickFlight = {
+    t: 0,
+    dur: THREE.MathUtils.clamp(distance * 0.028, 1, 2),
+    from,
+    ctrl,
+    to,
+    type,
+    distance,
+    made,
+  }
+  playerFootball.visible = false
+  thrownFootball.visible = true
+  thrownFootball.position.copy(from)
+  statusText.textContent = 'The kick is up…'
+}
+
+function updateKickFlight(delta: number) {
+  const k = state.kickFlight
+  if (!k) return
+  k.t += delta
+  const p = Math.min(1, k.t / k.dur)
+  const m = 1 - p
+  // Quadratic Bezier: tee -> apex -> uprights.
+  thrownFootball.position.set(
+    m * m * k.from.x + 2 * m * p * k.ctrl.x + p * p * k.to.x,
+    m * m * k.from.y + 2 * m * p * k.ctrl.y + p * p * k.to.y,
+    m * m * k.from.z + 2 * m * p * k.ctrl.z + p * p * k.to.z,
+  )
+  thrownFootball.rotation.x += delta * 12
+  if (p >= 1) {
+    thrownFootball.visible = false
+    const done = k
+    state.kickFlight = null
+    settleKick(done.type, done.distance, done.made)
+  }
+}
+
+function settleKick(type: KickType, distance: number, made: boolean) {
   if (made) {
     state.score += type === 'extraPoint' ? 1 : 3
     statusText.textContent = `${type === 'extraPoint' ? 'EXTRA POINT' : `${distance}-YARD FIELD GOAL`} IS GOOD! You lead ${state.score}-${state.opponentScore}.`
@@ -1296,6 +1427,7 @@ function resetDrive(startZ = USER_TWENTY_Z) {
   state.playTime = 0
   state.selectedPlay = null
   state.throwing = false
+  state.afterCatch = false
   state.passTime = 0
   state.passTarget = null
   state.playClock = PLAY_CLOCK_SECONDS
@@ -1319,7 +1451,7 @@ function lineUpForSnap() {
   state.passTarget = null
   playerFootball.visible = true
   thrownFootball.visible = false
-  camera.position.set(0, 2.35, state.cameraZ)
+  camera.position.set(0, EYE_HEIGHT, state.cameraZ)
   resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
@@ -1395,6 +1527,7 @@ function startPlay(play: PlayId) {
   state.playTime = 0
   state.running = true
   state.throwing = false
+  state.afterCatch = false
   state.snapZ = state.cameraZ
   state.prevDirection = 0
   state.playerVX = 0
@@ -1456,7 +1589,7 @@ function assignPassProtection(isRun: boolean, longHold = false) {
 }
 
 function throwTo(receiver: Receiver) {
-  if (!state.running || state.throwing || isRunId(state.selectedPlay)) return
+  if (!state.running || state.throwing || state.afterCatch || isRunId(state.selectedPlay)) return
   state.throwing = true
   state.passTime = 0
   state.passTarget = receiver
@@ -1537,13 +1670,40 @@ function updatePass(delta: number) {
     offensiveMenu(state.passContested ? 'Broken up.' : 'Incomplete.')
     return
   }
-  receiver.heldFootball.visible = true
+  // Completed pass: you take over as the ball carrier at the catch point and run
+  // it yourself until the defense tackles you (or you reach the end zone).
   state.playerX = receiver.mesh.position.x
-  state.cameraZ = receiver.mesh.position.z + 4
-  camera.position.set(state.playerX, 2.35, state.cameraZ)
+  state.cameraZ = receiver.mesh.position.z + 1.5
+  state.ballOn = ballOnFromZ(state.cameraZ)
+  camera.position.set(state.playerX, EYE_HEIGHT, state.cameraZ)
   aimCamera()
-  const outOfBounds = Math.abs(state.playerX) >= 24
-  gainTo(ballOnFromZ(state.cameraZ), 'Complete!', outOfBounds)
+  if (state.ballOn >= 100) {
+    gainTo(100, 'Complete — touchdown!')
+    return
+  }
+  // Clear the routes so the catch can't be re-thrown, then hand you the ball.
+  while (receivers.length) world.remove(receivers.pop()!.mesh)
+  state.afterCatch = true
+  state.running = true
+  state.prevDirection = 0
+  state.playerVX = 0
+  state.playerVZ = 0
+  footstepTimer = 0
+  playerFootball.visible = true
+  // Give yourself a step: a short no-tackle window, and the nearest defender in
+  // coverage has to break down before he can bring you in.
+  state.catchGraceUntil = state.playTime + 0.55
+  let closest: Defender | null = null
+  let closestDist = Infinity
+  for (const d of defenders) {
+    const dist = Math.hypot(d.x - state.playerX, d.z - state.cameraZ)
+    if (dist < closestDist) {
+      closestDist = dist
+      closest = d
+    }
+  }
+  if (closest && closestDist < 4.5) closest.stumbleUntil = state.playTime + 0.55
+  statusText.textContent = 'Caught it — now run! WASD to move, Shift or Space to sprint.'
 }
 
 function updateScoreboard() {
@@ -1584,8 +1744,10 @@ function updateHud() {
 
 function finishRunPlay() {
   state.selectedPlay = null
+  const wasAfterCatch = state.afterCatch
+  state.afterCatch = false
   const outOfBounds = Math.abs(state.playerX) >= 24
-  gainTo(ballOnFromZ(state.cameraZ), 'Tackled.', outOfBounds)
+  gainTo(ballOnFromZ(state.cameraZ), wasAfterCatch ? 'Tackled after the catch.' : 'Tackled.', outOfBounds)
 }
 
 function sack() {
@@ -1596,7 +1758,7 @@ function sack() {
 }
 
 function throwAway() {
-  if (!state.running || state.throwing || isRunId(state.selectedPlay) || state.possession !== 'offense') return
+  if (!state.running || state.throwing || state.afterCatch || isRunId(state.selectedPlay) || state.possession !== 'offense') return
   state.running = false
   state.lastPlayStoppedClock = true
   state.down += 1
@@ -1618,7 +1780,7 @@ function pursueTarget(d: Defender, tx: number, tz: number, tvx: number, tvz: num
   let aimZ = tz + tvz * lead - d.z
   const len = Math.hypot(aimX, aimZ) || 0.0001
   const slowed = d.stumbleUntil > state.playTime ? 0.34 : 1
-  const step = d.speed * delta * slowed
+  const step = d.speed * delta * slowed * MOVE_SCALE
   d.x = THREE.MathUtils.clamp(d.x + (aimX / len) * step, -25, 25)
   d.z += (aimZ / len) * step
 }
@@ -1638,12 +1800,12 @@ function updateGame(delta: number) {
   const runReady = !isRunPlay || state.playTime >= state.runDelay
   const direction = (keys.left ? -1 : 0) + (keys.right ? 1 : 0)
   const depthDirection = isRunPlay ? (runReady ? 1 : 0) : (keys.forward ? 1 : 0) + (keys.backward ? -1 : 0)
-  const perSecond = keys.sprint ? 17 : 12
+  const perSecond = (keys.sprint ? 17 : 12) * MOVE_SCALE
   const speed = perSecond * delta
-  state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12, -22, 22)
+  state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * MOVE_SCALE, -22, 22)
   state.cameraZ -= depthDirection * speed
   state.ballOn = ballOnFromZ(state.cameraZ)
-  state.playerVX = direction * 12
+  state.playerVX = direction * 12 * MOVE_SCALE
   state.playerVZ = -depthDirection * perSecond
   const cutThisFrame = direction !== 0 && Math.sign(direction) !== Math.sign(state.prevDirection) && state.prevDirection !== 0
   state.prevDirection = direction
@@ -1661,8 +1823,9 @@ function updateGame(delta: number) {
   }
 
   const ballLive = !state.throwing
-  const passDropback = !isRunPlay && !state.throwing
-  const crossedLos = state.cameraZ < state.snapZ - 0.5
+  // After a catch you are a runner, not a passer — no sack, everyone pursues you.
+  const passDropback = !isRunPlay && !state.throwing && !state.afterCatch
+  const crossedLos = state.afterCatch || state.cameraZ < state.snapZ - 0.5
 
   for (const lineman of linemen) {
     const foe = lineman.assignment
@@ -1724,7 +1887,8 @@ function updateGame(delta: number) {
     )
     defender.mesh.rotation.z = Math.sin(performance.now() * 0.012 + defender.runPhase) * 0.035
 
-    if (ballLive) {
+    const inCatchGrace = state.afterCatch && state.playTime < state.catchGraceUntil
+    if (ballLive && !inCatchGrace) {
       const near = Math.hypot(defender.x - state.playerX, defender.z - state.cameraZ)
       if (near < 1.7) {
         if (passDropback && defender.role === 'rush') {
@@ -1761,8 +1925,8 @@ function updateDefense(delta: number) {
   const direction = (keys.left ? 1 : 0) + (keys.right ? -1 : 0)
   const depthDirection = (keys.forward ? 1 : 0) + (keys.backward ? -1 : 0)
   const blocked = state.playerBlockedUntil > state.playTime
-  const perSecond = (keys.sprint ? 17 : 12) * (blocked ? 0.45 : 1)
-  state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * (blocked ? 0.4 : 1), -22, 22)
+  const perSecond = (keys.sprint ? 17 : 12) * (blocked ? 0.45 : 1) * MOVE_SCALE
+  state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * (blocked ? 0.4 : 1) * MOVE_SCALE, -22, 22)
   state.cameraZ -= depthDirection * perSecond * delta
   camera.position.x += (state.playerX - camera.position.x) * Math.min(1, delta * 10)
   camera.position.z = state.cameraZ
@@ -1814,7 +1978,7 @@ function updateDefense(delta: number) {
     state.carrierNextJuke = state.playTime + randomBetween(1.1, 1.9)
   }
   const juking = state.playTime < state.carrierJukeUntil
-  const fwd = (nearDist > 6 ? 15.5 : nearDist < 2.6 ? 8.5 : carrier.speed) * state.defCarrierSpeedMul
+  const fwd = (nearDist > 6 ? 15.5 : nearDist < 2.6 ? 8.5 : carrier.speed) * state.defCarrierSpeedMul * MOVE_SCALE
   carrier.z += fwd * delta
   const aimX = juking ? carrier.x + state.carrierJukeVX : state.carrierLaneX
   carrier.x = THREE.MathUtils.clamp(carrier.x + (aimX - carrier.x) * Math.min(1, delta * (juking ? 9 : 2.6)), -23, 23)
@@ -1929,6 +2093,7 @@ function frame(time: number) {
     state.kickPower = (Math.sin(time * 0.006) * 0.5 + 0.5) * 100
     kickFill.style.width = `${state.kickPower}%`
   }
+  if (state.kickFlight) updateKickFlight(delta)
   updateGame(delta)
   updateCrowd(time)
   if (!state.gameOver && state.running) updateHud()
@@ -1944,10 +2109,11 @@ sun.position.set(-20, 35, 15)
 scene.add(sun)
 scene.add(world)
 scene.add(camera)
-camera.position.set(0, 2.35, state.cameraZ)
+camera.position.set(0, EYE_HEIGHT, state.cameraZ)
 camera.add(new THREE.AmbientLight(0xffffff, 0.5))
 createField()
 createStadium()
+createSidelines()
 createPlayerView()
 startGame()
 resize()
