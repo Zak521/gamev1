@@ -43,6 +43,7 @@ type CrowdMember = {
   z: number
   facing: number
   phase: number
+  scale: number
   colorIndex: number
   bodyIndex: number
   headIndex: number
@@ -90,7 +91,7 @@ const OPPONENT_GOAL_LINE_Z = -92
 const USER_TWENTY_Z = USER_GOAL_LINE_Z - 20
 
 // Game-structure tunables (see plan: Rules & game structure).
-const QUARTER_SECONDS = 90
+const QUARTER_SECONDS = 120
 const OT_SECONDS = 180
 const INTER_PLAY_RUNOFF = 25
 const PLAY_CLOCK_SECONDS = 40
@@ -156,6 +157,10 @@ app.innerHTML = `
         <div class="kick-track"><div id="kickFill" class="kick-fill"></div><i class="kick-sweet-spot"></i></div>
         <small>Hit the gold zone for a clean kick</small>
       </div>
+      <div id="staminaMeter" class="stamina-meter is-hidden" aria-hidden="true">
+        <span>Stamina</span>
+        <div class="stamina-track"><div id="staminaFill" class="stamina-fill"></div></div>
+      </div>
       <div id="gameOverPanel" class="game-over is-hidden" role="dialog" aria-label="Final score">
         <span class="play-call-kicker">Final</span>
         <h2 id="gameOverTitle">Final</h2>
@@ -180,7 +185,7 @@ app.innerHTML = `
     </div>
     <div class="controls-panel">
       <div class="instructions">
-        <span>Move: WASD or Arrow keys</span><span>Look: mouse (click field)</span><span>Sprint: Shift or Space</span><span>Goal: reach the end zone</span>
+        <span>Move: WASD or Arrow keys</span><span>Look: mouse (click field)</span><span>Sprint: Shift or Space (burns stamina)</span><span>Goal: reach the end zone</span>
       </div>
       <div class="touch-controls">
         <button type="button" data-move="left">Left</button><button type="button" data-move="right">Right</button><button type="button" data-move="sprint">Sprint</button>
@@ -201,6 +206,8 @@ const statusText = document.querySelector<HTMLElement>('#statusText')!
 const kickMeter = document.querySelector<HTMLDivElement>('#kickMeter')!
 const kickPrompt = document.querySelector<HTMLElement>('#kickPrompt')!
 const kickFill = document.querySelector<HTMLDivElement>('#kickFill')!
+const staminaMeter = document.querySelector<HTMLDivElement>('#staminaMeter')!
+const staminaFill = document.querySelector<HTMLDivElement>('#staminaFill')!
 const resetButton = document.querySelector<HTMLButtonElement>('#resetButton')!
 const playCall = document.querySelector<HTMLDivElement>('#playCall')!
 const playCallKicker = document.querySelector<HTMLElement>('#playCallKicker')!
@@ -215,7 +222,7 @@ const gameOverScore = document.querySelector<HTMLElement>('#gameOverScore')!
 const newGameButton = document.querySelector<HTMLButtonElement>('#newGameButton')!
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
 const scene = new THREE.Scene()
-const camera = new THREE.PerspectiveCamera(68, 1, 0.1, 260)
+const camera = new THREE.PerspectiveCamera(68, 1, 0.1, 420)
 const world = new THREE.Group()
 const playerView = new THREE.Group()
 const defenders: Defender[] = []
@@ -224,7 +231,9 @@ const receivers: Receiver[] = []
 // Your AI defenders that pursue alongside you when the opponent has the ball.
 const teammates: Defender[] = []
 const crowdMembers: CrowdMember[] = []
+const clouds: THREE.Group[] = []
 const crowdBodyMeshes: THREE.InstancedMesh[] = []
+const crowdShoulderMeshes: THREE.InstancedMesh[] = []
 let crowdHeadMesh: THREE.InstancedMesh | null = null
 const crowdTransform = new THREE.Object3D()
 const passRaycaster = new THREE.Raycaster()
@@ -318,6 +327,15 @@ const state = {
   },
   // Brief window after a catch where you can't be tackled, so you get a step.
   catchGraceUntil: 0,
+  // Down & distance shown on the HUD is frozen at the snap and only refreshed
+  // once the ball is dead and re-spotted — a live play never changes the marker.
+  snapDownText: '1st & 10',
+  snapYardsText: 'OWN 20',
+  // Sprint stamina: 1 = fresh, 0 = gassed. Sprinting drains it; jogging/standing
+  // refills it. `gassed` locks sprint out until stamina recovers past a threshold.
+  stamina: 1,
+  gassed: false,
+  sprinting: false,
   opponentPlay: 'Inside Run',
 }
 let playerFootball: THREE.Mesh
@@ -391,6 +409,21 @@ function labelSprite(text: string, color = '#ffffff') {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }))
   sprite.scale.set(5, 2.5, 1)
   return sprite
+}
+
+// The Vikings wear purple; everyone else on the field is the Bears.
+const VIKINGS_PURPLE = 0x8b5cf6
+function teamName(jerseyColor: number) {
+  return jerseyColor === VIKINGS_PURPLE ? 'VIKINGS' : 'BEARS'
+}
+
+// A jersey nameplate across the chest. It respects depth so players in front
+// cleanly occlude the ones behind them instead of the text stacking up.
+function jerseyNameplate(jerseyColor: number) {
+  const plate = labelSprite(teamName(jerseyColor), jerseyColor === VIKINGS_PURPLE ? '#ede9fe' : '#ffedd5')
+  plate.scale.set(1.7, 0.44, 1)
+  plate.renderOrder = 1
+  return plate
 }
 
 function fieldNumber(text: string) {
@@ -506,10 +539,12 @@ function createGoalPost(z: number, facing: number) {
 function createStadium() {
   const standColors = [0x17233b, 0x253654, 0x334b70]
   const fanColors = [0xf8fafc, 0xfbbf24, 0x38bdf8, 0xf43f5e, 0x22c55e, 0xa78bfa, 0xfb923c]
-  const fanHeadGeometry = new THREE.SphereGeometry(0.14, 7, 5)
-  const fanBodyGeometry = new THREE.CylinderGeometry(0.19, 0.25, 0.5, 6)
+  const fanHeadGeometry = new THREE.SphereGeometry(0.15, 8, 6)
+  const fanBodyGeometry = new THREE.CylinderGeometry(0.19, 0.26, 0.52, 7)
+  const fanShoulderGeometry = new THREE.BoxGeometry(0.52, 0.24, 0.32)
   const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
   const fanBodyMatrices = fanColors.map(() => [] as THREE.Matrix4[])
+  const fanShoulderMatrices = fanColors.map(() => [] as THREE.Matrix4[])
   const fanHeadMatrices: THREE.Matrix4[] = []
   const fanTransform = new THREE.Object3D()
 
@@ -517,63 +552,72 @@ function createStadium() {
     const normalizedColorIndex = colorIndex % fanColors.length
     const bodyIndex = fanBodyMatrices[normalizedColorIndex].length
     const headIndex = fanHeadMatrices.length
-    fanTransform.position.set(x, y + 0.28, z)
+    const scale = randomBetween(0.82, 1.12)
     fanTransform.rotation.set(0, facing, 0)
+    fanTransform.scale.setScalar(scale)
+    fanTransform.position.set(x, y + 0.28 * scale, z)
     fanTransform.updateMatrix()
     fanBodyMatrices[normalizedColorIndex].push(fanTransform.matrix.clone())
-    fanTransform.position.y = y + 0.67
+    fanTransform.position.y = y + 0.56 * scale
+    fanTransform.updateMatrix()
+    fanShoulderMatrices[normalizedColorIndex].push(fanTransform.matrix.clone())
+    fanTransform.position.y = y + 0.72 * scale
     fanTransform.updateMatrix()
     fanHeadMatrices.push(fanTransform.matrix.clone())
-    crowdMembers.push({ x, y, z, facing, phase: randomBetween(0, Math.PI * 2), colorIndex: normalizedColorIndex, bodyIndex, headIndex })
+    fanTransform.scale.setScalar(1)
+    crowdMembers.push({ x, y, z, facing, phase: randomBetween(0, Math.PI * 2), scale, colorIndex: normalizedColorIndex, bodyIndex, headIndex })
   }
 
-  // A deeper bowl makes the stadium feel full while retaining a clear field-level view.
-  // The front row sits back far enough to leave a sideline apron for the benches.
+  // A deep bowl of stands wraps the field; the front rows sit back far enough to
+  // leave a sideline apron for the benches.
   for (const side of [-1, 1]) {
-    for (let row = 0; row < 12; row += 1) {
-      const x = side * (32 + row * 1.18)
-      const y = 0.55 + row * 0.72
+    for (let row = 0; row < 19; row += 1) {
+      const x = side * (32 + row * 1.16)
+      const y = 0.5 + row * 0.75
       const seats = new THREE.Mesh(
-        new THREE.BoxGeometry(2.25, 1.15, 112),
+        new THREE.BoxGeometry(2.3, 1.2, 122),
         new THREE.MeshStandardMaterial({ color: standColors[row % standColors.length], roughness: 0.82 }),
       )
       seats.position.set(x, y, -47)
       world.add(seats)
-      for (let seat = 0; seat < 52; seat += 1) {
-        addFan(x - side * 1.18, y + 0.5, -101 + seat * 2.1 + (row % 2) * 0.55, seat + row * 3, -side * Math.PI / 2)
+      for (let seat = 0; seat < 58; seat += 1) {
+        addFan(x - side * 1.2, y + 0.52, -105 + seat * 2.08 + (row % 2) * 0.55, seat + row * 3, -side * Math.PI / 2)
       }
     }
   }
 
   for (const end of [1, -1]) {
-    for (let row = 0; row < 10; row += 1) {
-      // Keep both end stands the same 3.2 units clear of their end-zone back line.
-      const z = end === 1 ? 21.2 + row * 1.22 : -105.2 - row * 1.22
-      const y = 0.5 + row * 0.72
+    for (let row = 0; row < 15; row += 1) {
+      const z = end === 1 ? 21 + row * 1.2 : -105 - row * 1.2
+      const y = 0.5 + row * 0.75
       const seats = new THREE.Mesh(
-        new THREE.BoxGeometry(82, 1.12, 2.25),
+        new THREE.BoxGeometry(102, 1.18, 2.3),
         new THREE.MeshStandardMaterial({ color: standColors[(row + 1) % standColors.length], roughness: 0.82 }),
       )
       seats.position.set(0, y, z)
       world.add(seats)
-      for (let seat = 0; seat < 36; seat += 1) {
-        addFan(-36 + seat * 2.05, y + 0.5, z - end * 1.15, seat * 2 + row, end === 1 ? Math.PI : 0)
+      for (let seat = 0; seat < 46; seat += 1) {
+        addFan(-45 + seat * 2.0, y + 0.52, z - end * 1.2, seat * 2 + row, end === 1 ? Math.PI : 0)
       }
     }
   }
 
-  // Use instancing so the packed crowd remains inexpensive to render.
-  for (const [colorIndex, matrices] of fanBodyMatrices.entries()) {
-    const bodies = new THREE.InstancedMesh(
-      fanBodyGeometry,
-      new THREE.MeshStandardMaterial({ color: fanColors[colorIndex], roughness: 0.8 }),
-      matrices.length,
-    )
-    matrices.forEach((matrix, index) => bodies.setMatrixAt(index, matrix))
-    bodies.instanceMatrix.needsUpdate = true
-    world.add(bodies)
-    crowdBodyMeshes[colorIndex] = bodies
+  // Use instancing so the packed crowd (several thousand fans) stays cheap.
+  const buildFanLayer = (buckets: THREE.Matrix4[][], geometry: THREE.BufferGeometry, target: THREE.InstancedMesh[], skin = false) => {
+    for (const [colorIndex, matrices] of buckets.entries()) {
+      const mesh = new THREE.InstancedMesh(
+        geometry,
+        skin ? skinMaterial : new THREE.MeshStandardMaterial({ color: fanColors[colorIndex], roughness: 0.8 }),
+        matrices.length,
+      )
+      matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix))
+      mesh.instanceMatrix.needsUpdate = true
+      world.add(mesh)
+      target[colorIndex] = mesh
+    }
   }
+  buildFanLayer(fanBodyMatrices, fanBodyGeometry, crowdBodyMeshes)
+  buildFanLayer(fanShoulderMatrices, fanShoulderGeometry, crowdShoulderMeshes)
   const heads = new THREE.InstancedMesh(fanHeadGeometry, skinMaterial, fanHeadMatrices.length)
   fanHeadMatrices.forEach((matrix, index) => heads.setMatrixAt(index, matrix))
   heads.instanceMatrix.needsUpdate = true
@@ -581,21 +625,21 @@ function createStadium() {
   crowdHeadMesh = heads
 
   const outerWallMaterial = new THREE.MeshStandardMaterial({ color: 0x111c30, roughness: 0.88 })
-  for (const x of [-44, 44]) {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(2.6, 13, 128), outerWallMaterial)
-    wall.position.set(x, 4.5, -47)
+  for (const x of [-58, 58]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(2.6, 24, 168), outerWallMaterial)
+    wall.position.set(x, 9, -47)
     world.add(wall)
   }
-  for (const z of [28, -112]) {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(90, 13, 2.6), outerWallMaterial)
-    wall.position.set(0, 4.5, z)
+  for (const z of [46, -140]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(126, 24, 2.6), outerWallMaterial)
+    wall.position.set(0, 9, z)
     world.add(wall)
   }
 
   const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x17243a, metalness: 0.45, roughness: 0.5, side: THREE.DoubleSide })
   const trussMaterial = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.3 })
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(90, 1.2, 130), roofMaterial)
-  roof.position.set(0, 26, -47)
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(118, 1.2, 168), roofMaterial)
+  roof.position.set(0, 28, -47)
   world.add(roof)
   const skylight = new THREE.Mesh(
     new THREE.PlaneGeometry(45, 94),
@@ -645,6 +689,59 @@ function createStadium() {
   }
 }
 
+// The sky: a hazy sun low over the far end zone plus puffy clouds ringing the
+// bowl. Both use fog-exempt materials so distance doesn't wash them into the
+// backdrop, and the clouds drift slowly across in the animation loop.
+function createSky() {
+  const sun = new THREE.Group()
+  const sunCore = new THREE.Mesh(
+    new THREE.SphereGeometry(7, 24, 16),
+    new THREE.MeshBasicMaterial({ color: 0xfff6da, fog: false }),
+  )
+  sun.add(sunCore)
+  const sunGlow = new THREE.Sprite(
+    new THREE.SpriteMaterial({ color: 0xfff0bf, transparent: true, opacity: 0.5, depthWrite: false, fog: false }),
+  )
+  sunGlow.scale.set(42, 42, 1)
+  sun.add(sunGlow)
+  sun.position.set(-46, 33, -210)
+  world.add(sun)
+
+  const cloudMaterial = new THREE.MeshStandardMaterial({
+    color: 0xf4f8ff,
+    roughness: 1,
+    emissive: 0xbcd0ea,
+    emissiveIntensity: 0.4,
+    fog: false,
+  })
+  const puff = new THREE.SphereGeometry(1, 12, 8)
+  const addCloud = (x: number, y: number, z: number, scale: number) => {
+    const cloud = new THREE.Group()
+    const lobes = 3 + Math.floor(Math.random() * 4)
+    for (let lobe = 0; lobe < lobes; lobe += 1) {
+      const blob = new THREE.Mesh(puff, cloudMaterial)
+      const size = randomBetween(0.7, 1.5) * scale
+      blob.scale.set(
+        size * randomBetween(1.1, 1.9),
+        size * randomBetween(0.45, 0.7),
+        size * randomBetween(0.9, 1.4),
+      )
+      blob.position.set(randomBetween(-1.6, 1.6) * scale, randomBetween(-0.3, 0.4) * scale, randomBetween(-1, 1) * scale)
+      cloud.add(blob)
+    }
+    cloud.position.set(x, y, z)
+    cloud.userData.drift = randomBetween(0.8, 2.4)
+    world.add(cloud)
+    clouds.push(cloud)
+  }
+  // A band along the downfield horizon, framed by the open end of the stadium.
+  for (let i = 0; i < 7; i += 1) addCloud(randomBetween(-160, 160), randomBetween(22, 46), randomBetween(-270, -180), randomBetween(6, 11))
+  // A band behind the player for when you spin the camera around.
+  for (let i = 0; i < 5; i += 1) addCloud(randomBetween(-160, 160), randomBetween(24, 50), randomBetween(150, 250), randomBetween(6, 10))
+  // High scattered puffs, seen overhead through the skylight.
+  for (let i = 0; i < 6; i += 1) addCloud(randomBetween(-100, 100), randomBetween(58, 92), randomBetween(-150, 60), randomBetween(7, 12))
+}
+
 // A single standing sideline figure: a benched player (with pads + helmet) or a
 // head coach (bare head, ball cap, khakis). Both wear their team's colors.
 function createSidelineFigure(x: number, z: number, jersey: number, trim: number, facing: number, isCoach: boolean) {
@@ -652,17 +749,27 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
   const jerseyMat = new THREE.MeshStandardMaterial({ color: jersey, roughness: 0.8 })
   const trimMat = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.7 })
   const skinMat = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const pantsMat = new THREE.MeshStandardMaterial({ color: isCoach ? 0xcbb58a : 0xe5e7eb, roughness: 0.8 })
+  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 })
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.82, isCoach ? 1.15 : 1.45, 0.5), jerseyMat)
   torso.position.y = isCoach ? 1.12 : 1.22
   group.add(torso)
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.2, 8), skinMat)
+  neck.position.y = isCoach ? 1.74 : 1.98
+  group.add(neck)
   if (!isCoach) {
     const pads = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 8), trimMat)
     pads.scale.set(1, 0.34, 0.6)
     pads.position.y = 1.95
     group.add(pads)
     const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), trimMat)
+    helmet.scale.set(1.04, 0.92, 1.04)
     helmet.position.y = 2.4
     group.add(helmet)
+    const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.46, 8), shoeMat)
+    facemask.rotation.z = Math.PI / 2
+    facemask.position.set(0, 2.28, 0.36)
+    group.add(facemask)
   } else {
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), skinMat)
     head.position.y = 1.92
@@ -674,18 +781,47 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     brim.position.set(0, 1.99, 0.27)
     group.add(brim)
   }
+  // Arms: jersey (or polo) sleeve, bare forearm, hand. Coaches keep one arm bent
+  // up holding a play sheet; benched players let both arms hang.
+  const shoulderY = isCoach ? 1.55 : 1.72
+  for (const armSide of [-1, 1]) {
+    const raised = isCoach && armSide === 1
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.1, 0.62, 8), jerseyMat)
+    upper.position.set(armSide * 0.55, shoulderY - 0.3, raised ? 0.12 : 0)
+    upper.rotation.z = -armSide * 0.2
+    if (raised) upper.rotation.x = -0.5
+    group.add(upper)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.085, 0.58, 8), skinMat)
+    forearm.position.set(armSide * 0.66, shoulderY - 0.82, raised ? 0.5 : 0.04)
+    forearm.rotation.z = -armSide * 0.12
+    if (raised) forearm.rotation.x = -1.1
+    group.add(forearm)
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), skinMat)
+    hand.position.set(armSide * 0.7, raised ? shoulderY - 0.5 : shoulderY - 1.12, raised ? 0.66 : 0.06)
+    group.add(hand)
+  }
+  if (isCoach) {
+    const sheet = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.4), new THREE.MeshStandardMaterial({ color: 0xf8fafc }))
+    sheet.position.set(0.66, shoulderY - 0.44, 0.62)
+    sheet.rotation.x = -0.5
+    group.add(sheet)
+  }
   for (const legX of [-0.22, 0.22]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, isCoach ? 1.15 : 0.95, 7), trimMat)
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, isCoach ? 1.15 : 0.95, 7), pantsMat)
     leg.position.set(legX, isCoach ? 0.58 : 0.42, 0)
     group.add(leg)
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.42), shoeMat)
+    shoe.position.set(legX, 0.06, 0.12)
+    group.add(shoe)
   }
   group.position.set(x, 0, z)
-  group.rotation.y = facing
+  group.rotation.y = facing + randomBetween(-0.35, 0.35)
+  group.scale.setScalar(randomBetween(0.94, 1.06))
   world.add(group)
 }
 
-// Benches and a head coach on each sideline, in the right team colors:
-// home Vikings in purple on the near sideline, away Boo Bears in orange.
+// Benches and coaching staff on each sideline, in the right team colors:
+// the Vikings (purple) on the near sideline, the Bears (orange) across the way.
 function createSidelines() {
   const khaki = 0xcbb58a
   const teams = [
@@ -694,14 +830,18 @@ function createSidelines() {
   ]
   for (const team of teams) {
     const inward = team.sideX < 0 ? 1 : -1
-    // Two rows of players milling in the team area, spanning the 10s.
-    for (let i = 0; i < 16; i += 1) {
-      const z = -16 - i * 2.8
-      const x = team.sideX + inward * (i % 2) * 0.95
+    // A deep bench: three staggered rows of players milling in the team area,
+    // spanning most of the sideline between the 25s.
+    for (let i = 0; i < 26; i += 1) {
+      const z = -12 - i * 2.35
+      const rowOffset = (i % 3) * 1.05
+      const x = team.sideX + inward * (rowOffset + randomBetween(-0.3, 0.3))
       createSidelineFigure(x, z, team.jersey, team.trim, team.facing, false)
     }
-    // Head coach a step in front of the bench, near midfield.
-    createSidelineFigure(team.sideX + inward * 1.7, -42, team.coachTop, khaki, team.facing, true)
+    // Head coach out front near midfield, plus two assistants down the line.
+    createSidelineFigure(team.sideX + inward * 2.1, -42, team.coachTop, khaki, team.facing, true)
+    createSidelineFigure(team.sideX + inward * 1.6, -24, team.coachTop, khaki, team.facing, true)
+    createSidelineFigure(team.sideX + inward * 1.6, -66, team.coachTop, khaki, team.facing, true)
   }
 }
 
@@ -718,11 +858,15 @@ function createDefender(x: number, z: number, color: number, number: number, has
   shoulderPads.position.y = 1.95
   group.add(shoulderPads)
   const jerseyNumber = labelSprite(String(number))
-  jerseyNumber.position.set(0, 1.35, 0.47)
+  jerseyNumber.position.set(0, 1.25, 0.47)
   jerseyNumber.scale.set(1.3, 0.7, 1)
   jerseyNumber.renderOrder = 2
   ;(jerseyNumber.material as THREE.SpriteMaterial).depthTest = false
   group.add(jerseyNumber)
+  const nameplate = jerseyNameplate(color)
+  nameplate.position.set(0, 1.85, 0.4)
+  nameplate.scale.set(1.7, 0.42, 1)
+  group.add(nameplate)
   const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 8), dark)
   helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.45
@@ -747,6 +891,25 @@ function createDefender(x: number, z: number, color: number, number: number, has
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.62), dark)
     shoe.position.set(legX, 0.06, 0.16)
     group.add(shoe)
+  }
+  const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.21, 0.26, 8), skinMaterial)
+  neck.position.y = 2.05
+  group.add(neck)
+  // Arms: a short jersey sleeve over a bare forearm, ending in a gloved hand.
+  for (const armSide of [-0.72, 0.72]) {
+    const inward = armSide < 0 ? -1 : 1
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.15, 0.7, 8), uniform)
+    sleeve.position.set(armSide, 1.55, 0)
+    sleeve.rotation.z = -inward * 0.24
+    group.add(sleeve)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.12, 0.68, 8), skinMaterial)
+    forearm.position.set(armSide + inward * 0.14, 0.95, 0.05)
+    forearm.rotation.z = -inward * 0.12
+    group.add(forearm)
+    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), padMaterial)
+    glove.position.set(armSide + inward * 0.2, 0.6, 0.08)
+    group.add(glove)
   }
   const football = new THREE.Mesh(
     new THREE.SphereGeometry(0.22, 14, 9),
@@ -814,19 +977,47 @@ function createReceiver(x: number, breakX: number, targetX: number, routeDepth: 
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.35, 0.58), uniform)
   torso.position.y = 1.12
   group.add(torso)
+  const skin = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const shoulderPads = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 8), dark)
+  shoulderPads.scale.set(1, 0.32, 0.6)
+  shoulderPads.position.y = 1.72
+  group.add(shoulderPads)
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.22, 8), skin)
+  neck.position.y = 1.84
+  group.add(neck)
   const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 8), dark)
+  helmet.scale.set(1.02, 0.94, 1.02)
   helmet.position.y = 2.05
   group.add(helmet)
+  const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), dark)
+  facemask.rotation.z = Math.PI / 2
+  facemask.position.set(0, 1.93, 0.34)
+  group.add(facemask)
+  const nameplate = jerseyNameplate(0x8b5cf6)
+  nameplate.position.set(0, 1.42, 0.31)
+  nameplate.scale.set(1.5, 0.4, 1)
+  group.add(nameplate)
   for (const legX of [-0.22, 0.22]) {
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.9, 7), dark)
     leg.position.set(legX, 0.38, 0)
     group.add(leg)
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.13, 0.5), dark)
+    shoe.position.set(legX, 0.05, 0.14)
+    group.add(shoe)
   }
   for (const armX of [-0.52, 0.52]) {
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.82, 7), uniform)
-    arm.position.set(armX, 1.2, -0.08)
-    arm.rotation.z = armX * -0.42
+    const inward = armX < 0 ? -1 : 1
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.5, 7), uniform)
+    arm.position.set(armX, 1.5, -0.06)
+    arm.rotation.z = -inward * 0.32
     group.add(arm)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.5, 7), skin)
+    forearm.position.set(armX + inward * 0.14, 1.06, 0)
+    forearm.rotation.z = -inward * 0.16
+    group.add(forearm)
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), skin)
+    hand.position.set(armX + inward * 0.22, 0.82, 0.02)
+    group.add(hand)
   }
   const heldFootball = new THREE.Mesh(
     new THREE.SphereGeometry(0.22, 14, 9),
@@ -864,13 +1055,41 @@ function createLineman(x: number, z: number, number: number) {
   pads.scale.set(1.05, 0.32, 0.58)
   pads.position.y = 1.92
   group.add(pads)
+  const skin = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.24, 8), skin)
+  neck.position.y = 2.02
+  group.add(neck)
   const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 8), dark)
+  helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.4
   group.add(helmet)
+  const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.58, 8), dark)
+  facemask.rotation.z = Math.PI / 2
+  facemask.position.set(0, 2.26, 0.44)
+  group.add(facemask)
+  // Beefy arms braced forward, ending in gloved hands, plus cleats.
+  for (const armX of [-0.86, 0.86]) {
+    const inward = armX < 0 ? -1 : 1
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.66, 8), uniform)
+    sleeve.position.set(armX, 1.5, 0.02)
+    sleeve.rotation.z = -inward * 0.3
+    group.add(sleeve)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.15, 0.62, 8), skin)
+    forearm.position.set(armX + inward * 0.16, 0.94, 0.16)
+    forearm.rotation.z = -inward * 0.18
+    forearm.rotation.x = -0.5
+    group.add(forearm)
+    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), dark)
+    glove.position.set(armX + inward * 0.24, 0.64, 0.4)
+    group.add(glove)
+  }
   for (const legX of [-0.34, 0.34]) {
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 1.05, 8), dark)
     leg.position.set(legX, 0.44, 0)
     group.add(leg)
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.56), dark)
+    shoe.position.set(legX, 0.06, 0.16)
+    group.add(shoe)
   }
   const label = labelSprite(String(number), '#fef08a')
   label.position.set(0, 1.3, -0.5)
@@ -1145,7 +1364,10 @@ function startGame() {
   state.gameOver = false
   state.kickType = null
   state.kickFlight = null
+  state.stamina = 1
+  state.gassed = false
   kickMeter.classList.add('is-hidden')
+  staminaMeter.classList.add('is-hidden')
   state.firstPossession = Math.random() < 0.5 ? 'offense' : 'defense'
   gameOverPanel.classList.add('is-hidden')
   playCall.classList.add('is-hidden')
@@ -1265,9 +1487,11 @@ function resolveKick() {
   const type = state.kickType
   if (!type || state.kickFlight) return
   const distance = state.kickDistance
-  const timing = 1 - Math.min(1, Math.abs(state.kickPower - 54) / 13)
-  const distanceChance = type === 'extraPoint' ? 0.97 : THREE.MathUtils.clamp(1.04 - (distance - 20) * 0.016, 0.05, 0.98)
-  const made = Math.random() < distanceChance * (0.18 + timing * 0.82)
+  // Forgiving timing window and a gentler distance falloff — a well-timed kick
+  // inside ~45 yards is nearly automatic, and even a mistimed one has a chance.
+  const timing = 1 - Math.min(1, Math.abs(state.kickPower - 54) / 22)
+  const distanceChance = type === 'extraPoint' ? 0.99 : THREE.MathUtils.clamp(1.16 - (distance - 20) * 0.011, 0.2, 0.99)
+  const made = Math.random() < distanceChance * (0.5 + timing * 0.5)
   state.kickType = null
   kickMeter.classList.add('is-hidden')
 
@@ -1493,6 +1717,13 @@ function snapDefense(call: DefenseCall) {
   state.running = true
   state.bigPlayAllowed = true
   state.carrierNextJuke = 1
+  state.stamina = 1
+  state.gassed = false
+  // Freeze the marker at the pre-snap spot for the duration of the play.
+  const snapZ = state.ballCarrier?.z ?? state.defenseStartZ
+  const snapTogo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - snapZ))
+  state.snapDownText = `${ordinal(Math.min(state.defenseDown, 4))} & ${snapTogo}`
+  state.snapYardsText = describeSpot(ballOnFromZ(snapZ))
   const cfg: Record<DefenseCall, { radius: number; teamSpeed: number; carrierMul: number }> = {
     base: { radius: 1.7, teamSpeed: 13, carrierMul: 1 },
     blitz: { radius: 1.9, teamSpeed: 14.5, carrierMul: 1.12 },
@@ -1534,9 +1765,14 @@ function startPlay(play: PlayId) {
   state.playerVZ = 0
   state.pressureAnnounced = false
   state.sacked = false
+  state.stamina = 1
+  state.gassed = false
   state.passContested = false
   state.passPickable = false
   state.passPI = false
+  // Snapshot the down & distance so the HUD stays put until this play is over.
+  state.snapDownText = downAndDistance()
+  state.snapYardsText = describeSpot(state.ballOn)
   lineUpForSnap()
   if (runId) {
     while (receivers.length) world.remove(receivers.pop()!.mesh)
@@ -1716,7 +1952,7 @@ function updateScoreboard() {
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.font = 'bold 44px Arial'
-  ctx.fillText(`HOME ${state.score}   AWAY ${state.opponentScore}`, 256, 42)
+  ctx.fillText(`VIKINGS ${state.score}   BEARS ${state.opponentScore}`, 256, 42)
   ctx.font = 'bold 30px Arial'
   ctx.fillStyle = '#e2e8f0'
   ctx.fillText(`${state.quarter >= 5 ? 'OT' : ordinal(state.quarter)}   ${formatClock(state.gameClock)}`, 256, 92)
@@ -1729,6 +1965,14 @@ function updateHud() {
   quarterEl.textContent = state.quarter >= 5 ? 'OT' : ordinal(state.quarter)
   clockEl.textContent = formatClock(state.gameClock)
   updateScoreboard()
+  // While a play is live the marker holds at the snap value; it updates only
+  // after the whistle, when the ball is spotted where the play ended.
+  if (state.running) {
+    yardsLabelEl.textContent = state.possession === 'defense' ? 'Opp ball on' : 'Ball on'
+    yardsEl.textContent = state.snapYardsText
+    downEl.textContent = state.snapDownText
+    return
+  }
   if (state.possession === 'defense') {
     const carrierZ = state.ballCarrier?.z ?? state.defenseStartZ
     const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - carrierZ))
@@ -1785,6 +2029,22 @@ function pursueTarget(d: Defender, tx: number, tz: number, tvx: number, tvz: num
   d.z += (aimZ / len) * step
 }
 
+// Resolve this frame's sprint state against the stamina pool and return the
+// forward-speed target (yd/s): 17 sprinting, 12 jogging, ~10.5 when running on empty.
+function resolveSprint(delta: number, moving: boolean) {
+  const sprinting = keys.sprint && !state.gassed && state.stamina > 0
+  if (sprinting && moving) {
+    state.stamina = Math.max(0, state.stamina - delta * 0.4)
+    if (state.stamina === 0) state.gassed = true
+  } else {
+    state.stamina = Math.min(1, state.stamina + delta * (moving ? 0.22 : 0.45))
+    if (state.gassed && state.stamina > 0.4) state.gassed = false
+  }
+  state.sprinting = sprinting
+  if (sprinting) return 17
+  return state.stamina < 0.15 ? 10.5 : 12
+}
+
 function updateGame(delta: number) {
   if (!state.running) return
   if (state.possession === 'defense') {
@@ -1800,7 +2060,8 @@ function updateGame(delta: number) {
   const runReady = !isRunPlay || state.playTime >= state.runDelay
   const direction = (keys.left ? -1 : 0) + (keys.right ? 1 : 0)
   const depthDirection = isRunPlay ? (runReady ? 1 : 0) : (keys.forward ? 1 : 0) + (keys.backward ? -1 : 0)
-  const perSecond = (keys.sprint ? 17 : 12) * MOVE_SCALE
+  const moving = isRunPlay || direction !== 0 || depthDirection !== 0
+  const perSecond = resolveSprint(delta, moving) * MOVE_SCALE
   const speed = perSecond * delta
   state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * MOVE_SCALE, -22, 22)
   state.cameraZ -= depthDirection * speed
@@ -1814,11 +2075,11 @@ function updateGame(delta: number) {
   aimCamera()
   playerView.position.x = (state.playerX - camera.position.x) * 0.18
   playerView.rotation.z = -direction * 0.04
-  if (isRunPlay || direction !== 0 || depthDirection !== 0) {
+  if (moving) {
     footstepTimer -= delta
     if (footstepTimer <= 0) {
       playFootstep()
-      footstepTimer = keys.sprint ? 0.2 : 0.3
+      footstepTimer = state.sprinting ? 0.2 : 0.3
     }
   }
 
@@ -1897,7 +2158,7 @@ function updateGame(delta: number) {
         }
         // Break-down tackle: a hard cut at speed can make a poor-angle defender whiff.
         const badAngle = Math.abs(defender.x - state.playerX) > 1.1
-        if (keys.sprint && cutThisFrame && badAngle && Math.random() < 0.5) {
+        if (state.sprinting && cutThisFrame && badAngle && Math.random() < 0.5) {
           defender.stumbleUntil = state.playTime + 0.8
         } else {
           finishRunPlay()
@@ -1925,7 +2186,7 @@ function updateDefense(delta: number) {
   const direction = (keys.left ? 1 : 0) + (keys.right ? -1 : 0)
   const depthDirection = (keys.forward ? 1 : 0) + (keys.backward ? -1 : 0)
   const blocked = state.playerBlockedUntil > state.playTime
-  const perSecond = (keys.sprint ? 17 : 12) * (blocked ? 0.45 : 1) * MOVE_SCALE
+  const perSecond = resolveSprint(delta, direction !== 0 || depthDirection !== 0) * (blocked ? 0.45 : 1) * MOVE_SCALE
   state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * (blocked ? 0.4 : 1) * MOVE_SCALE, -22, 22)
   state.cameraZ -= depthDirection * perSecond * delta
   camera.position.x += (state.playerX - camera.position.x) * Math.min(1, delta * 10)
@@ -1937,7 +2198,7 @@ function updateDefense(delta: number) {
   footstepTimer -= delta
   if ((direction !== 0 || depthDirection !== 0) && footstepTimer <= 0) {
     playFootstep()
-    footstepTimer = keys.sprint ? 0.2 : 0.3
+    footstepTimer = state.sprinting ? 0.2 : 0.3
   }
 
   const carrier = state.ballCarrier
@@ -2042,16 +2303,24 @@ function resize() {
 function updateCrowd(time: number) {
   if (!crowdHeadMesh) return
   for (const fan of crowdMembers) {
-    const jump = Math.max(0, Math.sin(time * 0.008 + fan.phase)) * 0.18
-    crowdTransform.position.set(fan.x, fan.y + 0.28 + jump, fan.z)
-    crowdTransform.rotation.set(0, fan.facing, 0)
+    const s = fan.scale
+    const jump = Math.max(0, Math.sin(time * 0.008 + fan.phase)) * 0.2
+    const sway = Math.sin(time * 0.0022 + fan.phase) * 0.05
+    crowdTransform.rotation.set(0, fan.facing + sway, 0)
+    crowdTransform.scale.setScalar(s)
+    crowdTransform.position.set(fan.x, fan.y + 0.28 * s + jump, fan.z)
     crowdTransform.updateMatrix()
     crowdBodyMeshes[fan.colorIndex].setMatrixAt(fan.bodyIndex, crowdTransform.matrix)
-    crowdTransform.position.y = fan.y + 0.67 + jump
+    crowdTransform.position.y = fan.y + 0.56 * s + jump
+    crowdTransform.updateMatrix()
+    crowdShoulderMeshes[fan.colorIndex].setMatrixAt(fan.bodyIndex, crowdTransform.matrix)
+    crowdTransform.position.y = fan.y + 0.72 * s + jump * 1.05
     crowdTransform.updateMatrix()
     crowdHeadMesh.setMatrixAt(fan.headIndex, crowdTransform.matrix)
   }
+  crowdTransform.scale.setScalar(1)
   crowdBodyMeshes.forEach((bodies) => { bodies.instanceMatrix.needsUpdate = true })
+  crowdShoulderMeshes.forEach((shoulders) => { shoulders.instanceMatrix.needsUpdate = true })
   crowdHeadMesh.instanceMatrix.needsUpdate = true
 }
 
@@ -2095,7 +2364,18 @@ function frame(time: number) {
   }
   if (state.kickFlight) updateKickFlight(delta)
   updateGame(delta)
+  for (const cloud of clouds) {
+    cloud.position.x += cloud.userData.drift * delta
+    if (cloud.position.x > 300) cloud.position.x -= 600
+  }
   updateCrowd(time)
+  const showStamina = state.running && !state.gameOver && !state.throwing && !state.kickType
+  staminaMeter.classList.toggle('is-hidden', !showStamina)
+  if (showStamina) {
+    staminaFill.style.width = `${Math.round(state.stamina * 100)}%`
+    staminaFill.style.backgroundColor = state.gassed ? '#ef4444' : state.stamina < 0.3 ? '#f59e0b' : '#22c55e'
+    staminaMeter.classList.toggle('is-gassed', state.gassed)
+  }
   if (!state.gameOver && state.running) updateHud()
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
@@ -2113,6 +2393,7 @@ camera.position.set(0, EYE_HEIGHT, state.cameraZ)
 camera.add(new THREE.AmbientLight(0xffffff, 0.5))
 createField()
 createStadium()
+createSky()
 createSidelines()
 createPlayerView()
 startGame()
@@ -2121,7 +2402,7 @@ window.addEventListener('resize', resize)
 document.addEventListener('mousemove', (event) => {
   if (document.pointerLockElement !== canvas) return
   viewYaw -= event.movementX * 0.0025
-  viewPitch = THREE.MathUtils.clamp(viewPitch - event.movementY * 0.0018, -0.28, 0.22)
+  viewPitch = THREE.MathUtils.clamp(viewPitch - event.movementY * 0.0018, -0.3, 0.42)
   aimCamera()
 })
 window.addEventListener('keydown', (event) => {
