@@ -105,6 +105,34 @@ function ordinal(n: number) {
   return n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`
 }
 
+// Career record carried between games (Retro Bowl-style season progression),
+// stored locally so it survives reloads. Any read/write is guarded because
+// private-mode browsers throw on localStorage access.
+type SeasonRecord = { w: number; l: number; t: number }
+const SEASON_KEY = 'touchdownRush.season'
+function loadSeason(): SeasonRecord {
+  try {
+    const raw = localStorage.getItem(SEASON_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<SeasonRecord>
+      return { w: parsed.w ?? 0, l: parsed.l ?? 0, t: parsed.t ?? 0 }
+    }
+  } catch {
+    /* storage unavailable — fall through to a fresh record */
+  }
+  return { w: 0, l: 0, t: 0 }
+}
+function saveSeason(season: SeasonRecord) {
+  try {
+    localStorage.setItem(SEASON_KEY, JSON.stringify(season))
+  } catch {
+    /* storage unavailable — the record just won't persist this session */
+  }
+}
+function formatRecord(season: SeasonRecord) {
+  return season.t > 0 ? `${season.w}-${season.l}-${season.t}` : `${season.w}-${season.l}`
+}
+
 // Yard line 0-100 measured from the user's own goal line (100 = opponent goal = TD).
 function losZ(yard: number) {
   return USER_GOAL_LINE_Z - yard
@@ -165,7 +193,16 @@ app.innerHTML = `
         <span class="play-call-kicker">Final</span>
         <h2 id="gameOverTitle">Final</h2>
         <p id="gameOverScore">0 - 0</p>
+        <p id="seasonRecord" class="season-line">Season 0-0</p>
         <button id="newGameButton" type="button">New Game</button>
+      </div>
+      <div id="patCall" class="play-call is-hidden" role="dialog" aria-label="Point after touchdown">
+        <span class="play-call-kicker">Touchdown · Point after</span>
+        <h2>Kick it, or go for two?</h2>
+        <div class="play-options">
+          <button id="patKick" type="button"><strong>Extra Point</strong><span>Kick through the uprights — routine, worth 1</span></button>
+          <button id="patGo" type="button"><strong>Go for Two</strong><span>One shot from the 2 — about 50/50, worth 2</span></button>
+        </div>
       </div>
       <div id="playCall" class="play-call" role="dialog" aria-label="Choose an offensive play">
         <span id="playCallKicker" class="play-call-kicker">Offense · 1st &amp; 10 · Play clock 40</span>
@@ -219,7 +256,11 @@ const defenseOptions = document.querySelector<HTMLDivElement>('#defenseOptions')
 const gameOverPanel = document.querySelector<HTMLDivElement>('#gameOverPanel')!
 const gameOverTitle = document.querySelector<HTMLElement>('#gameOverTitle')!
 const gameOverScore = document.querySelector<HTMLElement>('#gameOverScore')!
+const seasonRecordEl = document.querySelector<HTMLElement>('#seasonRecord')!
 const newGameButton = document.querySelector<HTMLButtonElement>('#newGameButton')!
+const patCall = document.querySelector<HTMLDivElement>('#patCall')!
+const patKickButton = document.querySelector<HTMLButtonElement>('#patKick')!
+const patGoButton = document.querySelector<HTMLButtonElement>('#patGo')!
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
 const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(68, 1, 0.1, 420)
@@ -310,6 +351,8 @@ const state = {
   clockEventHandled: false,
   lastPlayStoppedClock: true,
   gameOver: false,
+  // Guards the season record from being counted twice on one final whistle.
+  recorded: false,
   firstPossession: 'offense' as 'offense' | 'defense',
   kickType: null as KickType | null,
   kickPower: 0,
@@ -445,43 +488,228 @@ function fieldNumber(text: string) {
   return number
 }
 
+// --- Team marks ---------------------------------------------------------------
+// Trace a single Viking horn: a thick base at (cx,cy) that sweeps sideways in
+// `dir` (+1 right, -1 left) and curls upward to a hooked point. Used one-per-side
+// on helmets and as a mirrored pair for the midfield roundel.
+// One horn as a tapered crescent bowing upward: thick through the middle, pointed
+// at the base and the tip, drawn along a local axis then rotated to splay up/out.
+function hornPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, dir: number) {
+  const len = 150 * s
+  const thick = 62 * s
+  ctx.save()
+  ctx.translate(cx, cy)
+  ctx.rotate(dir * -0.62)
+  ctx.scale(dir, 1)
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  // outer (upper) edge bows high, inner (lower) edge bows shallow -> crescent
+  ctx.quadraticCurveTo(len * 0.52, -thick * 2.0, len, -thick * 0.15)
+  ctx.quadraticCurveTo(len * 0.5, -thick * 0.55, 0, 0)
+  ctx.closePath()
+  ctx.restore()
+}
+
+function paintHorns(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, pair: boolean, fill: string, stroke: string, lineWidth: number) {
+  ctx.fillStyle = fill
+  ctx.strokeStyle = stroke
+  ctx.lineWidth = lineWidth
+  ctx.lineJoin = 'round'
+  for (const dir of pair ? [-1, 1] : [1]) {
+    hornPath(ctx, cx, cy, s, dir)
+    ctx.fill()
+    ctx.stroke()
+  }
+}
+
+// A four-toe bear paw print on a 256px canvas, centred on (128,128).
+function drawPaw(ctx: CanvasRenderingContext2D, fill: string, stroke: string) {
+  ctx.fillStyle = fill
+  ctx.strokeStyle = stroke
+  ctx.lineWidth = 7
+  ctx.beginPath()
+  ctx.ellipse(128, 156, 46, 42, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  for (const [x, y, rx, ry] of [[74, 100, 19, 25], [110, 74, 19, 27], [146, 74, 19, 27], [182, 100, 19, 25]]) {
+    ctx.beginPath()
+    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  }
+}
+
+let hornsDecalTextureCache: THREE.CanvasTexture | null = null
+function hornsDecalTexture() {
+  if (hornsDecalTextureCache) return hornsDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  // A single rearward-curling horn, low and toward the back of the helmet.
+  paintHorns(ctx, 66, 178, 0.95, false, '#f4efe0', '#e0a92c', 12)
+  hornsDecalTextureCache = new THREE.CanvasTexture(c)
+  return hornsDecalTextureCache
+}
+
+let pawDecalTextureCache: THREE.CanvasTexture | null = null
+function pawDecalTexture() {
+  if (pawDecalTextureCache) return pawDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  drawPaw(ctx, '#f8fafc', '#1f2937')
+  pawDecalTextureCache = new THREE.CanvasTexture(c)
+  return pawDecalTextureCache
+}
+
+// A helmet decal: a small plane on each side of the helmet, textured with the
+// team's mark. The far side is mirrored so a directional mark (the horn) reads
+// correctly from both profiles.
+function helmetDecal(teamColor: number, radius: number, y: number) {
+  const group = new THREE.Group()
+  const isVikings = teamColor === VIKINGS_PURPLE
+  const texture = isVikings ? hornsDecalTexture() : pawDecalTexture()
+  const w = radius * (isVikings ? 1.35 : 1.05)
+  const h = radius * (isVikings ? 1.2 : 1.05)
+  for (const side of [-1, 1]) {
+    const decal = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }),
+    )
+    decal.position.set(side * (radius + 0.02), y, isVikings ? -radius * 0.1 : 0)
+    decal.rotation.y = side * Math.PI / 2
+    decal.scale.x = side
+    decal.renderOrder = 2
+    group.add(decal)
+  }
+  return group
+}
+
+// Minnesota Vikings midfield mark: the horns in a gold-ringed purple roundel
+// with the wordmark beneath, painted flat into the turf at the 50.
+let vikingsLogoTextureCache: THREE.CanvasTexture | null = null
+function vikingsLogoTexture() {
+  if (vikingsLogoTextureCache) return vikingsLogoTextureCache
+  const size = 512
+  const c = document.createElement('canvas')
+  c.width = c.height = size
+  const ctx = c.getContext('2d')!
+  ctx.clearRect(0, 0, size, size)
+  ctx.beginPath()
+  ctx.arc(size / 2, size / 2, 236, 0, Math.PI * 2)
+  ctx.fillStyle = '#4f2d8f'
+  ctx.fill()
+  ctx.lineWidth = 18
+  ctx.strokeStyle = '#f2c14a'
+  ctx.stroke()
+  // A mirrored pair of horns splaying out and up from the centre.
+  paintHorns(ctx, size / 2, size / 2 + 40, 1.25, true, '#f4efe0', '#e0a92c', 12)
+  ctx.fillStyle = '#f4efe0'
+  ctx.font = 'bold 82px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('VIKINGS', size / 2, size / 2 + 150)
+  vikingsLogoTextureCache = new THREE.CanvasTexture(c)
+  return vikingsLogoTextureCache
+}
+
 function createField() {
+  // A groundskeeping apron beyond the sidelines so the field doesn't end at the
+  // white line, then the playing surface itself.
+  const apron = new THREE.Mesh(
+    new THREE.PlaneGeometry(150, 240),
+    new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 1 }),
+  )
+  apron.rotation.x = -Math.PI / 2
+  apron.position.set(0, -0.04, -42)
+  world.add(apron)
+
   const field = new THREE.Mesh(
     new THREE.PlaneGeometry(53.3, 120),
-    new THREE.MeshStandardMaterial({ color: 0x168044, roughness: 0.95 }),
+    new THREE.MeshStandardMaterial({ color: 0x1a7a3f, roughness: 0.95 }),
   )
   field.rotation.x = -Math.PI / 2
   field.position.set(0, 0, -42)
   world.add(field)
 
-  const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })
+  // Alternating mow stripes down the 100 yards of playing field.
+  const stripeShades = [0x1c8446, 0x17703b]
+  for (let yard = 0; yard < 100; yard += 5) {
+    const stripe = new THREE.Mesh(
+      new THREE.PlaneGeometry(53.3, 5),
+      new THREE.MeshStandardMaterial({ color: stripeShades[(yard / 5) % 2], roughness: 0.95 }),
+    )
+    stripe.rotation.x = -Math.PI / 2
+    stripe.position.set(0, 0.008, 8 - yard - 2.5)
+    world.add(stripe)
+  }
+
+  const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+  // NFL hash marks sit 70' 9" off each sideline — about 3.1 yards from centre —
+  // and there's a mark on every single yard, not every five.
+  for (let yard = 1; yard < 100; yard += 1) {
+    const z = 8 - yard
+    const big = yard % 5 === 0
+    for (const x of [-3.1, 3.1]) {
+      const hash = new THREE.Mesh(new THREE.PlaneGeometry(big ? 1 : 0.6, 0.09), lineMaterial)
+      hash.rotation.x = -Math.PI / 2
+      hash.position.set(x, 0.03, z)
+      world.add(hash)
+    }
+    // Short reference ticks just inside each sideline.
+    for (const x of [-25.5, 25.5]) {
+      const tick = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.09), lineMaterial)
+      tick.rotation.x = -Math.PI / 2
+      tick.position.set(x, 0.03, z)
+      world.add(tick)
+    }
+  }
+
   for (let yard = 0; yard <= 100; yard += 5) {
     const z = 8 - yard
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(53.3, yard % 10 === 0 ? 0.16 : 0.08), lineMaterial)
+    const goalLine = yard === 0 || yard === 100
+    const line = new THREE.Mesh(
+      new THREE.PlaneGeometry(53.3, goalLine ? 0.34 : yard % 10 === 0 ? 0.16 : 0.09),
+      lineMaterial,
+    )
     line.rotation.x = -Math.PI / 2
     line.position.set(0, 0.025, z)
     world.add(line)
 
     if (yard % 10 === 0 && yard > 0 && yard < 100) {
-      for (const x of [-18.5, 18.5]) {
-        const number = fieldNumber(String(yard))
-        number.position.set(x, 0.035, z + 1.2)
+      const label = yard <= 50 ? yard : 100 - yard
+      for (const x of [-13.8, 13.8]) {
+        const number = fieldNumber(String(label))
+        number.position.set(x, 0.035, z)
         world.add(number)
-      }
-    }
-
-    if (yard > 0 && yard < 100) {
-      for (const x of [-10, 10]) {
-        const hash = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.08), lineMaterial)
-        hash.rotation.x = -Math.PI / 2
-        hash.position.set(x, 0.03, z)
-        world.add(hash)
+        // Direction arrow pointing to the nearer goal line (omitted at the 50).
+        if (label !== 50) {
+          const arrowShape = new THREE.Shape()
+          arrowShape.moveTo(0, 0.42)
+          arrowShape.lineTo(-0.34, -0.22)
+          arrowShape.lineTo(0.34, -0.22)
+          arrowShape.closePath()
+          const arrow = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape), lineMaterial)
+          arrow.rotation.x = -Math.PI / 2
+          arrow.rotation.z = yard < 50 ? Math.PI : 0
+          arrow.position.set(x < 0 ? x - 2.1 : x + 2.1, 0.035, z)
+          world.add(arrow)
+        }
       }
     }
   }
 
+  // Vikings mark at midfield (the 50 is at z = -42).
+  const midfieldLogo = new THREE.Mesh(
+    new THREE.PlaneGeometry(17, 17),
+    new THREE.MeshBasicMaterial({ map: vikingsLogoTexture(), transparent: true, depthWrite: false }),
+  )
+  midfieldLogo.rotation.x = -Math.PI / 2
+  midfieldLogo.position.set(0, 0.028, -42)
+  world.add(midfieldLogo)
+
   for (const x of [-26.7, 26.7]) {
-    const sideline = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 120), lineMaterial)
+    const sideline = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 120), lineMaterial)
     sideline.rotation.x = -Math.PI / 2
     sideline.position.set(x, 0.03, -42)
     world.add(sideline)
@@ -871,6 +1099,7 @@ function createDefender(x: number, z: number, color: number, number: number, has
   helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.45
   group.add(helmet)
+  group.add(helmetDecal(color, 0.5, 2.45))
   const facemaskBar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.72, 8), padMaterial)
   facemaskBar.rotation.z = Math.PI / 2
   facemaskBar.position.set(0, 2.3, 0.48)
@@ -989,6 +1218,7 @@ function createReceiver(x: number, breakX: number, targetX: number, routeDepth: 
   helmet.scale.set(1.02, 0.94, 1.02)
   helmet.position.y = 2.05
   group.add(helmet)
+  group.add(helmetDecal(0x8b5cf6, 0.4, 2.05))
   const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), dark)
   facemask.rotation.z = Math.PI / 2
   facemask.position.set(0, 1.93, 0.34)
@@ -1063,6 +1293,7 @@ function createLineman(x: number, z: number, number: number) {
   helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.4
   group.add(helmet)
+  group.add(helmetDecal(0x8b5cf6, 0.5, 2.4))
   const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.58, 8), dark)
   facemask.rotation.z = Math.PI / 2
   facemask.position.set(0, 2.26, 0.44)
@@ -1317,10 +1548,20 @@ function endGame() {
   releaseMouse()
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
+  patCall.classList.add('is-hidden')
   const won = state.score > state.opponentScore
   const tied = state.score === state.opponentScore
+  const season = loadSeason()
+  if (!state.recorded) {
+    if (won) season.w += 1
+    else if (tied) season.t += 1
+    else season.l += 1
+    saveSeason(season)
+    state.recorded = true
+  }
   gameOverTitle.textContent = tied ? 'Final — Tie' : won ? 'Final — You win' : 'Final — You lose'
   gameOverScore.textContent = `You ${state.score} · Opponent ${state.opponentScore}`
+  seasonRecordEl.textContent = `Season record: ${formatRecord(season)}`
   gameOverPanel.classList.remove('is-hidden')
   statusText.textContent = `FINAL · You ${state.score} — Opponent ${state.opponentScore}`
   updateHud()
@@ -1337,6 +1578,7 @@ function handleClockExpired() {
   if (state.quarter === 2) {
     playCall.classList.add('is-hidden')
     defenseCall.classList.add('is-hidden')
+    patCall.classList.add('is-hidden')
     statusText.textContent = 'End of the first half.'
     updateHud()
     schedule(halftime, 1400)
@@ -1362,6 +1604,7 @@ function startGame() {
   state.playClock = PLAY_CLOCK_SECONDS
   state.clockEventHandled = false
   state.gameOver = false
+  state.recorded = false
   state.kickType = null
   state.kickFlight = null
   state.stamina = 1
@@ -1372,6 +1615,7 @@ function startGame() {
   gameOverPanel.classList.add('is-hidden')
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
+  patCall.classList.add('is-hidden')
   statusText.textContent = state.firstPossession === 'offense'
     ? 'You won the toss and will receive.'
     : 'Opponent won the toss and will receive.'
@@ -1542,20 +1786,24 @@ function updateKickFlight(delta: number) {
 }
 
 function settleKick(type: KickType, distance: number, made: boolean) {
+  if (type === 'extraPoint') {
+    if (made) {
+      state.score += 1
+      statusText.textContent = `EXTRA POINT IS GOOD. You lead ${state.score}-${state.opponentScore}.`
+    } else {
+      statusText.textContent = 'Extra point is NO GOOD.'
+    }
+    afterPatResolved()
+    return
+  }
   if (made) {
-    state.score += type === 'extraPoint' ? 1 : 3
-    statusText.textContent = `${type === 'extraPoint' ? 'EXTRA POINT' : `${distance}-YARD FIELD GOAL`} IS GOOD! You lead ${state.score}-${state.opponentScore}.`
+    state.score += 3
+    statusText.textContent = `${distance}-YARD FIELD GOAL IS GOOD! You lead ${state.score}-${state.opponentScore}.`
     updateHud()
     if (state.quarter >= 5) {
       schedule(endGame, 1600)
       return
     }
-    schedule(() => kickoff('defense'), 1500)
-    return
-  }
-  if (type === 'extraPoint') {
-    statusText.textContent = 'Extra point is NO GOOD. Kicking off.'
-    updateHud()
     schedule(() => kickoff('defense'), 1500)
     return
   }
@@ -1593,15 +1841,57 @@ function turnOverOnDowns() {
 function scoreTouchdown() {
   state.running = false
   state.score += 6
-  statusText.textContent = `TOUCHDOWN! You lead ${state.score}-${state.opponentScore}. Set up for the extra point.`
   updateHud()
-  schedule(() => startKick('extraPoint', 33), 900)
+  // Overtime is sudden death — reaching the end zone ends it on the spot.
+  if (state.quarter >= 5) {
+    statusText.textContent = `TOUCHDOWN! You win it in overtime, ${state.score}-${state.opponentScore}.`
+    schedule(endGame, 1500)
+    return
+  }
+  releaseMouse()
+  statusText.textContent = `TOUCHDOWN! You lead ${state.score}-${state.opponentScore}. Kick the extra point, or go for two?`
+  schedule(showPatChoice, 900)
+}
+
+function showPatChoice() {
+  if (state.gameOver) return
+  playCall.classList.add('is-hidden')
+  defenseCall.classList.add('is-hidden')
+  patCall.classList.remove('is-hidden')
+}
+
+// Kick off to the opponent once the point-after is settled (or end an OT game).
+function afterPatResolved() {
+  updateHud()
+  if (state.quarter >= 5) {
+    schedule(endGame, 1600)
+    return
+  }
+  schedule(() => kickoff('defense'), 1500)
+}
+
+function goForTwo() {
+  patCall.classList.add('is-hidden')
+  const good = Math.random() < 0.47
+  if (good) state.score += 2
+  statusText.textContent = good
+    ? `TWO-POINT CONVERSION IS GOOD! You lead ${state.score}-${state.opponentScore}.`
+    : 'The two-point try is stuffed — no good.'
+  afterPatResolved()
 }
 
 function finishDefensivePlay(tackled: boolean) {
   state.running = false
   if (tackled) {
     const spotZ = state.ballCarrier?.z ?? state.defenseFirstDownZ
+    // Punch it out: a takeaway that hands the ball straight to your offense.
+    if (Math.random() < 0.05) {
+      state.lastPlayStoppedClock = true
+      statusText.textContent = `FORCED FUMBLE — takeaway! Your offense has it on the ${describeSpot(ballOnFromZ(spotZ))}.`
+      updateHud()
+      schedule(() => resetDrive(spotZ), 1300)
+      return
+    }
     const earnedFirstDown = spotZ - state.defenseFirstDownZ >= 10
     if (earnedFirstDown) {
       state.defenseDown = 1
@@ -1991,7 +2281,19 @@ function finishRunPlay() {
   const wasAfterCatch = state.afterCatch
   state.afterCatch = false
   const outOfBounds = Math.abs(state.playerX) >= 24
-  gainTo(ballOnFromZ(state.cameraZ), wasAfterCatch ? 'Tackled after the catch.' : 'Tackled.', outOfBounds)
+  const spotYard = ballOnFromZ(state.cameraZ)
+  // Taking a hit at full sprint in the field of play can jar the ball loose —
+  // the price of running with the sprint button held down.
+  if (state.sprinting && !outOfBounds && spotYard < 99 && Math.random() < 0.045) {
+    state.running = false
+    if (Math.random() < 0.5) {
+      giveBallToOpponent(100 - spotYard, 'FUMBLE — the defense falls on it!')
+      return
+    }
+    gainTo(spotYard, 'FUMBLE — but you recover your own ball!', true)
+    return
+  }
+  gainTo(spotYard, wasAfterCatch ? 'Tackled after the catch.' : 'Tackled.', outOfBounds)
 }
 
 function sack() {
@@ -2474,4 +2776,13 @@ canvas.addEventListener('pointerdown', (event) => {
 })
 resetButton.addEventListener('click', () => startGame())
 newGameButton.addEventListener('click', () => startGame())
+patKickButton.addEventListener('click', () => {
+  if (state.gameOver) return
+  patCall.classList.add('is-hidden')
+  startKick('extraPoint', 33)
+})
+patGoButton.addEventListener('click', () => {
+  if (state.gameOver) return
+  goForTwo()
+})
 requestAnimationFrame(frame)

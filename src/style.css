@@ -117,6 +117,13 @@ button {
   letter-spacing: 0.04em;
 }
 
+.game-over p.season-line {
+  font-size: 0.9rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
 .game-over button {
   justify-self: center;
   margin-top: 6px;
