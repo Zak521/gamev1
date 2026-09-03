@@ -53,7 +53,7 @@ import {
   yardsLabelEl,
 } from './core.ts'
 import type { DefenseCall, Defender, KickType, PlayId, RunPlayId } from './core.ts'
-import { camera, playerView, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
+import { camera, celebrateTouchdown, playerView, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
   buildDefense,
@@ -245,6 +245,7 @@ export function startGame() {
   state.clockEventHandled = false
   state.gameOver = false
   state.recorded = false
+  state.twoPointActive = false
   state.kickType = null
   state.kickFlight = null
   state.stamina = 1
@@ -267,6 +268,11 @@ export function gainTo(newBallOn: number, lead = '', clockStops = false) {
   state.lastPlayStoppedClock = clockStops
   state.running = false
   state.ballOn = THREE.MathUtils.clamp(Math.round(newBallOn), 0, 100)
+  // A two-point try only cares whether the ball reached the end zone.
+  if (state.twoPointActive) {
+    resolveTwoPoint(state.ballOn >= 100)
+    return
+  }
   if (state.ballOn <= 0) {
     safety()
     return
@@ -290,6 +296,11 @@ export function gainTo(newBallOn: number, lead = '', clockStops = false) {
 }
 
 export function offensiveMenu(lead: string) {
+  // Any incomplete pass / throwaway / penalty during a two-point try just ends it.
+  if (state.twoPointActive) {
+    resolveTwoPoint(false)
+    return
+  }
   state.running = false
   releaseMouse()
   state.selectedPlay = null
@@ -318,6 +329,11 @@ function safety() {
 // Hand the ball to the opponent (played as your defensive series) at a spot given
 // as the opponent's own yard line (1-99 from their goal).
 export function giveBallToOpponent(oppYard: number, message: string) {
+  // An interception or fumble on a two-point try just fails the try — no return.
+  if (state.twoPointActive) {
+    resolveTwoPoint(false)
+    return
+  }
   state.running = false
   state.lastPlayStoppedClock = true
   playCall.classList.add('is-hidden')
@@ -471,6 +487,10 @@ function kneelDown() {
 }
 
 export function turnOverOnDowns() {
+  if (state.twoPointActive) {
+    resolveTwoPoint(false)
+    return
+  }
   state.running = false
   const oppYard = 100 - state.ballOn
   statusText.textContent = 'TURNOVER ON DOWNS — get ready to play defense!'
@@ -481,6 +501,7 @@ export function turnOverOnDowns() {
 function scoreTouchdown() {
   state.running = false
   state.score += 6
+  celebrateTouchdown()
   updateHud()
   // Overtime is sudden death — reaching the end zone ends it on the spot.
   if (state.quarter >= 5) {
@@ -510,13 +531,42 @@ function afterPatResolved() {
   schedule(() => kickoff('defense'), 1500)
 }
 
+// Go for two: play it out as a live snap from the 2. Pick a play, then get the
+// ball into the end zone — anything else is no good.
 export function goForTwo() {
   patCall.classList.add('is-hidden')
-  const good = Math.random() < 0.47
-  if (good) state.score += 2
-  statusText.textContent = good
-    ? `TWO-POINT CONVERSION IS GOOD! You lead ${state.score}-${state.opponentScore}.`
-    : 'The two-point try is stuffed — no good.'
+  state.twoPointActive = true
+  state.possession = 'offense'
+  state.ballCarrier = null
+  state.ballOn = 98
+  state.firstDownTarget = 100
+  state.down = 1
+  state.cameraZ = losZ(state.ballOn)
+  state.playTab = 'pass'
+  state.selectedPlay = null
+  state.throwing = false
+  state.afterCatch = false
+  state.playClock = PLAY_CLOCK_SECONDS
+  state.lastPlayStoppedClock = true
+  statusText.textContent = 'Going for two — pick a play and get it into the end zone.'
+  renderPlayOptions()
+  playCall.classList.remove('is-hidden')
+  updateHud()
+}
+
+// Settle a two-point try and move on to the kickoff (or end an OT game).
+function resolveTwoPoint(scored: boolean) {
+  state.twoPointActive = false
+  state.running = false
+  releaseMouse()
+  playCall.classList.add('is-hidden')
+  if (scored) {
+    state.score += 2
+    statusText.textContent = `TWO-POINT CONVERSION IS GOOD! You lead ${state.score}-${state.opponentScore}.`
+  } else {
+    statusText.textContent = 'The two-point try comes up short — no good.'
+  }
+  updateHud()
   afterPatResolved()
 }
 
@@ -624,6 +674,8 @@ export function renderPlayOptions() {
   }
   for (const tab of playTabs.querySelectorAll<HTMLButtonElement>('button')) {
     tab.classList.toggle('is-active', tab.dataset.tab === state.playTab)
+    // Hide the Special Teams tab during a two-point try.
+    if (tab.dataset.tab === 'special') tab.hidden = state.twoPointActive
   }
 }
 
@@ -675,6 +727,8 @@ function snapDefense(call: DefenseCall) {
 export function startPlay(play: PlayId) {
   startAudio()
   if (state.gameOver || (!state.running && state.possession !== 'offense')) return
+  // No special teams on a two-point try — it's a run/pass snap from the 2.
+  if (state.twoPointActive && (play === 'fieldGoal' || play === 'punt' || play === 'kneel')) return
   if (play === 'fieldGoal') { attemptFieldGoal(); return }
   if (play === 'punt') { puntBall(); return }
   if (play === 'kneel') { kneelDown(); return }
@@ -822,6 +876,8 @@ export function throwAway() {
 
 export function tickClocks(delta: number) {
   if (state.gameOver) return
+  // The two-point try, like a PAT, is untimed.
+  if (state.twoPointActive) return
   if (state.running) {
     // Game clock runs during a live play.
     state.gameClock = Math.max(0, state.gameClock - delta)

@@ -40,6 +40,10 @@ export const crowdShoulderMeshes: THREE.InstancedMesh[] = []
 export const crowdHead = { mesh: null as THREE.InstancedMesh | null }
 const crowdTransform = new THREE.Object3D()
 
+// While `performance.now()` is below this, the crowd jumps higher/faster —
+// set by celebrateTouchdown() so the stands erupt after a score.
+let crowdHypeUntil = 0
+
 export function aimCamera() {
   const distance = 42
   camera.lookAt(
@@ -792,10 +796,11 @@ export function updateScoreboard() {
 export function updateCrowd(time: number) {
   const headMesh = crowdHead.mesh
   if (!headMesh) return
+  const hype = time < crowdHypeUntil ? 1 : 0
   for (const fan of crowdMembers) {
     const s = fan.scale
-    const jump = Math.max(0, Math.sin(time * 0.008 + fan.phase)) * 0.2
-    const sway = Math.sin(time * 0.0022 + fan.phase) * 0.05
+    const jump = Math.max(0, Math.sin(time * (0.008 + hype * 0.004) + fan.phase)) * (0.2 + hype * 0.6)
+    const sway = Math.sin(time * 0.0022 + fan.phase) * (0.05 + hype * 0.05)
     crowdTransform.rotation.set(0, fan.facing + sway, 0)
     crowdTransform.scale.setScalar(s)
     crowdTransform.position.set(fan.x, fan.y + 0.28 * s + jump, fan.z)
@@ -815,6 +820,187 @@ export function updateCrowd(time: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Touchdown celebration: a loud crowd roar + fireworks bursting over the bowl
+// ---------------------------------------------------------------------------
+
+// A very loud, layered stadium roar — filtered noise for the crowd, a rising
+// tonal sheen on top, and a short whistle. Peaks far above the ambient cheer.
+function playTouchdownRoar() {
+  const ac = audioContext
+  if (!ac || ac.state !== 'running') return
+  const now = ac.currentTime
+  const dur = 3.2
+
+  const noise = ac.createBufferSource()
+  const buffer = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate)
+  const data = buffer.getChannelData(0)
+  for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1
+  noise.buffer = buffer
+  const band = ac.createBiquadFilter()
+  band.type = 'bandpass'
+  band.Q.value = 0.7
+  band.frequency.setValueAtTime(500, now)
+  band.frequency.linearRampToValueAtTime(1500, now + 1.2)
+  band.frequency.linearRampToValueAtTime(900, now + dur)
+  const roarGain = ac.createGain()
+  roarGain.gain.setValueAtTime(0.0001, now)
+  roarGain.gain.exponentialRampToValueAtTime(0.16, now + 0.08)
+  roarGain.gain.linearRampToValueAtTime(0.45, now + 0.8)
+  roarGain.gain.setValueAtTime(0.45, now + 1.7)
+  roarGain.gain.exponentialRampToValueAtTime(0.0001, now + dur)
+  noise.connect(band).connect(roarGain).connect(ac.destination)
+  noise.start(now)
+  noise.stop(now + dur)
+
+  for (const detune of [-6, 5]) {
+    const osc = ac.createOscillator()
+    const oscGain = ac.createGain()
+    osc.type = 'sawtooth'
+    osc.frequency.setValueAtTime(180 + detune * 3, now)
+    osc.frequency.linearRampToValueAtTime(430 + detune * 4, now + 1)
+    oscGain.gain.setValueAtTime(0.0001, now)
+    oscGain.gain.exponentialRampToValueAtTime(0.06, now + 0.15)
+    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 2.4)
+    osc.connect(oscGain).connect(ac.destination)
+    osc.start(now)
+    osc.stop(now + 2.5)
+  }
+
+  const whistle = ac.createOscillator()
+  const whistleGain = ac.createGain()
+  whistle.type = 'sine'
+  whistle.frequency.setValueAtTime(2200, now)
+  whistle.frequency.linearRampToValueAtTime(2650, now + 0.3)
+  whistleGain.gain.setValueAtTime(0.0001, now)
+  whistleGain.gain.exponentialRampToValueAtTime(0.035, now + 0.05)
+  whistleGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.6)
+  whistle.connect(whistleGain).connect(ac.destination)
+  whistle.start(now)
+  whistle.stop(now + 0.65)
+}
+
+type Firework = {
+  points: THREE.Points
+  material: THREE.PointsMaterial
+  posAttr: THREE.BufferAttribute
+  position: Float32Array
+  velocity: Float32Array
+  origin: THREE.Vector3
+  phase: 'idle' | 'armed' | 'burst'
+  t: number
+  delay: number
+  life: number
+}
+
+const FIREWORK_SHELLS = 8
+const SPARKS_PER_SHELL = 80
+const fireworks: Firework[] = []
+
+function buildFireworks() {
+  for (let i = 0; i < FIREWORK_SHELLS; i += 1) {
+    const position = new Float32Array(SPARKS_PER_SHELL * 3)
+    const posAttr = new THREE.BufferAttribute(position, 3)
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', posAttr)
+    const material = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 2.4,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    })
+    const points = new THREE.Points(geometry, material)
+    points.visible = false
+    points.frustumCulled = false
+    world.add(points)
+    fireworks.push({
+      points, material, posAttr, position,
+      velocity: new Float32Array(SPARKS_PER_SHELL * 3),
+      origin: new THREE.Vector3(),
+      phase: 'idle', t: 0, delay: 0, life: 1.4,
+    })
+  }
+}
+
+const FIREWORK_PALETTE = [0xfbbf24, 0xf43f5e, 0x38bdf8, 0x22c55e, 0xa78bfa, 0xffffff, 0xfb923c, 0x34d399]
+
+// Arm every shell to burst over the next ~2s at a staggered delay.
+function launchFireworks() {
+  fireworks.forEach((fw, i) => {
+    fw.phase = 'armed'
+    fw.t = 0
+    fw.delay = i * 0.26 + randomBetween(0, 0.16)
+    fw.life = randomBetween(1.2, 1.7)
+    fw.material.color.setHex(FIREWORK_PALETTE[i % FIREWORK_PALETTE.length])
+    // Downfield and low enough to sit in a first-person glance up from the field.
+    fw.origin.set(randomBetween(-28, 28), randomBetween(13, 27), randomBetween(-100, -52))
+  })
+}
+
+// Step the fireworks; call once per frame from the render loop.
+export function updateFireworks(delta: number) {
+  const gravity = 11
+  for (const fw of fireworks) {
+    if (fw.phase === 'idle') continue
+    fw.t += delta
+
+    if (fw.phase === 'armed') {
+      if (fw.t < fw.delay) continue
+      const speed = randomBetween(9, 14)
+      for (let s = 0; s < SPARKS_PER_SHELL; s += 1) {
+        const k = s * 3
+        fw.position[k] = fw.origin.x
+        fw.position[k + 1] = fw.origin.y
+        fw.position[k + 2] = fw.origin.z
+        const u = Math.random() * 2 - 1
+        const a = Math.random() * Math.PI * 2
+        const r = Math.sqrt(1 - u * u)
+        const mag = speed * (0.35 + Math.random() * 0.65)
+        fw.velocity[k] = Math.cos(a) * r * mag
+        fw.velocity[k + 1] = u * mag + 2
+        fw.velocity[k + 2] = Math.sin(a) * r * mag
+      }
+      fw.points.visible = true
+      fw.material.opacity = 1
+      fw.phase = 'burst'
+      fw.t = 0
+    }
+
+    if (fw.phase === 'burst') {
+      const drag = Math.max(0, 1 - delta * 1.1)
+      for (let s = 0; s < SPARKS_PER_SHELL; s += 1) {
+        const k = s * 3
+        fw.velocity[k + 1] -= gravity * delta
+        fw.velocity[k] *= drag
+        fw.velocity[k + 1] *= drag
+        fw.velocity[k + 2] *= drag
+        fw.position[k] += fw.velocity[k] * delta
+        fw.position[k + 1] += fw.velocity[k + 1] * delta
+        fw.position[k + 2] += fw.velocity[k + 2] * delta
+      }
+      fw.posAttr.needsUpdate = true
+      fw.material.opacity = Math.max(0, 1 - fw.t / fw.life)
+      if (fw.t >= fw.life) {
+        fw.phase = 'idle'
+        fw.points.visible = false
+        fw.material.opacity = 0
+      }
+    }
+  }
+}
+
+// One call, fired on a touchdown: deafening roar, fireworks, and a crowd that
+// leaps out of its seats for a few seconds.
+export function celebrateTouchdown() {
+  playTouchdownRoar()
+  launchFireworks()
+  crowdHypeUntil = performance.now() + 4200
+}
+
+// ---------------------------------------------------------------------------
 // Scene lighting & composition (runs on import)
 // ---------------------------------------------------------------------------
 
@@ -828,3 +1014,4 @@ scene.add(world)
 scene.add(camera)
 camera.position.set(0, EYE_HEIGHT, state.cameraZ)
 camera.add(new THREE.AmbientLight(0xffffff, 0.5))
+buildFireworks()

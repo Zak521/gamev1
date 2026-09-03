@@ -28,6 +28,7 @@ import {
   scene,
   startAudio,
   updateCrowd,
+  updateFireworks,
   view,
 } from './world.ts'
 import { createPlayerView } from './entities.ts'
@@ -73,6 +74,7 @@ function frame(time: number) {
     if (cloud.position.x > 300) cloud.position.x -= 600
   }
   updateCrowd(time)
+  updateFireworks(delta)
   const showStamina = state.running && !state.gameOver && !state.throwing && !state.kickType
   staminaMeter.classList.toggle('is-hidden', !showStamina)
   if (showStamina) {

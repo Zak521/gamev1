@@ -347,6 +347,9 @@ export const state = {
   gameOver: false,
   // Guards the season record from being counted twice on one final whistle.
   recorded: false,
+  // True while a two-point conversion is being played out as a live snap from
+  // the 2 (reach the end zone = +2, any other dead ball = no good).
+  twoPointActive: false,
   firstPossession: 'offense' as 'offense' | 'defense',
   kickType: null as KickType | null,
   kickPower: 0,
