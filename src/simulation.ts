@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import {
   EYE_HEIGHT,
   MOVE_SCALE,
+  OPPONENT_END_ZONE_BACK_Z,
+  USER_END_ZONE_BACK_Z,
   USER_GOAL_LINE_Z,
   ballOnFromZ,
   defenders,
@@ -202,6 +204,12 @@ export function updateGame(delta: number) {
   state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * MOVE_SCALE, -22, 22)
   state.cameraZ -= depthDirection * speed
   state.ballOn = ballOnFromZ(state.cameraZ)
+  // Retreating out the back of your own end zone — hitting the bleachers —
+  // ends the play as a safety instead of letting you run out of the stadium.
+  if (state.cameraZ >= USER_END_ZONE_BACK_Z) {
+    gainTo(0, 'Ran out the back of your own end zone!', true)
+    return
+  }
   state.playerVX = direction * 12 * MOVE_SCALE
   state.playerVZ = -depthDirection * perSecond
   const cutThisFrame = direction !== 0 && Math.sign(direction) !== Math.sign(state.prevDirection) && state.prevDirection !== 0
@@ -324,7 +332,9 @@ function updateDefense(delta: number) {
   const blocked = state.playerBlockedUntil > state.playTime
   const perSecond = resolveSprint(delta, direction !== 0 || depthDirection !== 0) * (blocked ? 0.45 : 1) * MOVE_SCALE
   state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * (blocked ? 0.4 : 1) * MOVE_SCALE, -22, 22)
-  state.cameraZ -= depthDirection * perSecond * delta
+  // Clamped to the field's own end zones so you can't chase the runner (or
+  // just wander) out the back of the stadium into the bleachers.
+  state.cameraZ = THREE.MathUtils.clamp(state.cameraZ - depthDirection * perSecond * delta, OPPONENT_END_ZONE_BACK_Z, USER_END_ZONE_BACK_Z)
   camera.position.x += (state.playerX - camera.position.x) * Math.min(1, delta * 10)
   camera.position.z = state.cameraZ
   aimCamera()

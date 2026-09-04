@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import {
+  END_ZONE_DEPTH,
   EYE_HEIGHT,
   TEAMS,
   canvas,
@@ -539,8 +540,8 @@ export function createField() {
   // field regardless of who the opponent is, so both ends read "GO VIKINGS".
   for (const z of [-97, 13]) {
     const endZone = new THREE.Mesh(
-      new THREE.PlaneGeometry(53.3, 10),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(TEAMS.vikings.primary, 53.3, 10), roughness: 0.92 }),
+      new THREE.PlaneGeometry(53.3, END_ZONE_DEPTH),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(TEAMS.vikings.primary, 53.3, END_ZONE_DEPTH), roughness: 0.92 }),
     )
     endZone.rotation.x = -Math.PI / 2
     endZone.position.set(0, 0.02, z)

@@ -97,6 +97,14 @@ export const USER_GOAL_LINE_Z = 8
 export const OPPONENT_GOAL_LINE_Z = -92
 export const USER_TWENTY_Z = USER_GOAL_LINE_Z - 20
 
+// Depth of each end zone, and the Z boundaries a player can physically reach
+// before hitting the back wall / bleachers. Crossing the near one while on
+// offense is a safety (see simulation.ts); the far one is unreachable without
+// already scoring a touchdown, since that's checked every frame first.
+export const END_ZONE_DEPTH = 10
+export const USER_END_ZONE_BACK_Z = USER_GOAL_LINE_Z + END_ZONE_DEPTH
+export const OPPONENT_END_ZONE_BACK_Z = OPPONENT_GOAL_LINE_Z - END_ZONE_DEPTH
+
 // Game-structure tunables (see plan: Rules & game structure).
 export const QUARTER_SECONDS = 120
 export const OT_SECONDS = 180
