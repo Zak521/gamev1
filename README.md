@@ -1,9 +1,11 @@
 # Touchdown Rush
 
 A first-person 3D football game that runs in the browser. You play as the
-Minnesota Vikings against the Chicago Bears in a fully modelled stadium —
-call plays, take the snap, and either sling it downfield or tuck it and run
-through the defense yourself.
+Minnesota Vikings in a fully modelled stadium, picking one of their NFC North
+rivals — the Detroit Lions, Green Bay Packers, or Chicago Bears, each in
+their own colors — to face at the start of every game. Call plays, take the
+snap, and either sling it downfield or tuck it and run through the defense
+yourself.
 
 Built with [Three.js](https://threejs.org/), TypeScript, and [Vite](https://vitejs.dev/).
 
@@ -42,6 +44,9 @@ On-screen **Left / Right / Sprint** buttons are provided for touch devices.
 
 ### Rules and game structure
 
+- Every new game opens with a team-select dialog — pick the Lions, Packers,
+  or Bears, and their jerseys, helmet marks, end zone, sideline, and
+  scoreboard all switch to match.
 - Four 2-minute quarters (a 3-minute overtime period if tied), with a running
   game clock and a 40-second play clock.
 - Standard downs: four downs to gain 10 yards for a fresh set. Turnover on

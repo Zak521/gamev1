@@ -34,10 +34,10 @@ import {
 import { createPlayerView } from './entities.ts'
 import {
   goForTwo,
+  openTeamSelect,
   renderDefenseOptions,
   renderPlayOptions,
   resolveKick,
-  startGame,
   startKick,
   throwAway,
   tickClocks,
@@ -92,7 +92,7 @@ createStadium()
 createSky()
 createSidelines()
 createPlayerView()
-startGame()
+openTeamSelect()
 resize()
 window.addEventListener('resize', resize)
 document.addEventListener('mousemove', (event) => {
@@ -168,8 +168,8 @@ canvas.addEventListener('pointerdown', (event) => {
     if (receiver) throwTo(receiver)
   }
 })
-resetButton.addEventListener('click', () => startGame())
-newGameButton.addEventListener('click', () => startGame())
+resetButton.addEventListener('click', () => openTeamSelect())
+newGameButton.addEventListener('click', () => openTeamSelect())
 patKickButton.addEventListener('click', () => {
   if (state.gameOver) return
   patCall.classList.add('is-hidden')

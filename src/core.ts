@@ -108,8 +108,58 @@ export const PLAY_CLOCK_SECONDS = 40
 export const MOVE_SCALE = 0.9
 export const EYE_HEIGHT = 2.7
 
-// The Vikings wear purple; everyone else on the field is the Bears.
+// The Vikings wear purple; the opponent is whichever NFC North rival the
+// player picks from the team-select dialog at the start of a game.
 export const VIKINGS_PURPLE = 0x8b5cf6
+
+export type TeamId = 'vikings' | 'lions' | 'packers' | 'bears'
+
+export type TeamInfo = {
+  id: TeamId
+  name: string // short scoreboard/jersey name, e.g. "PACKERS"
+  fullName: string // e.g. "Green Bay Packers"
+  primary: number // jersey, helmet, and end-zone color
+  accent: number // ball-carrier highlight, coach polo, and nameplate text tint
+  nameplateText: string // hex string, readable against the jersey color
+}
+
+export const TEAMS: Record<TeamId, TeamInfo> = {
+  vikings: {
+    id: 'vikings',
+    name: 'VIKINGS',
+    fullName: 'Minnesota Vikings',
+    primary: VIKINGS_PURPLE,
+    accent: 0x4c1d95,
+    nameplateText: '#ede9fe',
+  },
+  lions: {
+    id: 'lions',
+    name: 'LIONS',
+    fullName: 'Detroit Lions',
+    primary: 0x0076b6,
+    accent: 0xb0b7bc,
+    nameplateText: '#e8f4ff',
+  },
+  packers: {
+    id: 'packers',
+    name: 'PACKERS',
+    fullName: 'Green Bay Packers',
+    primary: 0x203731,
+    accent: 0xffb612,
+    nameplateText: '#ffe6a3',
+  },
+  bears: {
+    id: 'bears',
+    name: 'BEARS',
+    fullName: 'Chicago Bears',
+    primary: 0x0b162a,
+    accent: 0xc83803,
+    nameplateText: '#ff9a63',
+  },
+}
+
+// NFC North rivals the player can choose to play against on a new game.
+export const OPPONENT_TEAM_IDS: TeamId[] = ['lions', 'packers', 'bears']
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -198,7 +248,7 @@ app.innerHTML = `
   <div class="game-shell">
     <header class="top-bar">
       <div class="score-card"><span class="label">You</span><strong id="score">0</strong></div>
-      <div class="score-card"><span class="label">Opponent</span><strong id="opponentScore">0</strong></div>
+      <div class="score-card"><span id="opponentLabel" class="label">Opponent</span><strong id="opponentScore">0</strong></div>
       <div class="score-card"><span class="label">Qtr</span><strong id="quarter">1st</strong></div>
       <div class="score-card"><span class="label">Clock</span><strong id="clock">5:00</strong></div>
       <div class="score-card"><span id="yardsLabel" class="label">Ball on</span><strong id="yards">OWN 20</strong></div>
@@ -247,6 +297,11 @@ app.innerHTML = `
         <h2>Call your defense</h2>
         <div id="defenseOptions" class="play-options"></div>
       </div>
+      <div id="teamSelect" class="play-call is-hidden" role="dialog" aria-label="Choose your opponent">
+        <span class="play-call-kicker">NFC North · New Game</span>
+        <h2>Pick your opponent</h2>
+        <div id="teamOptions" class="play-options team-options"></div>
+      </div>
     </div>
     <div class="controls-panel">
       <div class="instructions">
@@ -262,6 +317,7 @@ app.innerHTML = `
 export const canvas = document.querySelector<HTMLCanvasElement>('#gameCanvas')!
 export const scoreEl = document.querySelector<HTMLElement>('#score')!
 export const opponentScoreEl = document.querySelector<HTMLElement>('#opponentScore')!
+export const opponentLabelEl = document.querySelector<HTMLElement>('#opponentLabel')!
 export const yardsLabelEl = document.querySelector<HTMLElement>('#yardsLabel')!
 export const yardsEl = document.querySelector<HTMLElement>('#yards')!
 export const downEl = document.querySelector<HTMLElement>('#down')!
@@ -281,6 +337,8 @@ export const playOptions = document.querySelector<HTMLDivElement>('#playOptions'
 export const defenseCall = document.querySelector<HTMLDivElement>('#defenseCall')!
 export const defenseKicker = document.querySelector<HTMLElement>('#defenseKicker')!
 export const defenseOptions = document.querySelector<HTMLDivElement>('#defenseOptions')!
+export const teamSelect = document.querySelector<HTMLDivElement>('#teamSelect')!
+export const teamOptions = document.querySelector<HTMLDivElement>('#teamOptions')!
 export const gameOverPanel = document.querySelector<HTMLDivElement>('#gameOverPanel')!
 export const gameOverTitle = document.querySelector<HTMLElement>('#gameOverTitle')!
 export const gameOverScore = document.querySelector<HTMLElement>('#gameOverScore')!
@@ -379,6 +437,9 @@ export const state = {
   // Countdown between footstep sound effects; frame-scratch, reset on each snap.
   footstepTimer: 0,
   opponentPlay: 'Inside Run',
+  // Which NFC North rival is on the other sideline this game — set by the
+  // team-select dialog before startGame() runs.
+  opponentTeam: 'bears' as TeamId,
 }
 
 // ---------------------------------------------------------------------------

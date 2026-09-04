@@ -5,9 +5,11 @@ import {
   INTER_PLAY_RUNOFF,
   OFFENSE_PLAYBOOK,
   OPPONENT_GOAL_LINE_Z,
+  OPPONENT_TEAM_IDS,
   OT_SECONDS,
   PLAY_CLOCK_SECONDS,
   QUARTER_SECONDS,
+  TEAMS,
   USER_TWENTY_Z,
   ballOnFromZ,
   clockEl,
@@ -32,6 +34,7 @@ import {
   linemen,
   loadSeason,
   losZ,
+  opponentLabelEl,
   opponentScoreEl,
   ordinal,
   patCall,
@@ -48,12 +51,14 @@ import {
   staminaMeter,
   state,
   statusText,
+  teamOptions,
+  teamSelect,
   teammates,
   yardsEl,
   yardsLabelEl,
 } from './core.ts'
-import type { DefenseCall, Defender, KickType, PlayId, RunPlayId } from './core.ts'
-import { camera, celebrateTouchdown, playerView, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
+import type { DefenseCall, Defender, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
+import { applyOpponentTeam, camera, celebrateTouchdown, playerView, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
   buildDefense,
@@ -105,17 +110,19 @@ export function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSerie
   balls.player.visible = false
   balls.thrown.visible = false
 
-  // The opponent offense: a red ball carrier plus orange blockers who wall you off.
+  // The opponent offense: a highlighted ball carrier plus blockers who wall
+  // you off, all in the chosen opponent's colors.
+  const opponentTeam = TEAMS[state.opponentTeam]
   for (let index = 0; index < 7; index += 1) {
     const x = index === 0 ? randomBetween(-10, 10) : randomBetween(-16, 16)
     const z = spotZ + (index === 0 ? 0 : 4 + index * 2.6)
-    const opponent = createDefender(x, z, index === 0 ? 0xdc2626 : 0xf97316, 10 + index, index === 0)
+    const opponent = createDefender(x, z, index === 0 ? opponentTeam.accent : opponentTeam.primary, 10 + index, opponentTeam.id, index === 0)
     opponent.speed = index === 0 ? opponentCall.speed : 11
     if (index === 0) state.ballCarrier = opponent
   }
   // Your pursuit help, spread across the field a few yards ahead of you.
   for (let index = 0; index < 4; index += 1) {
-    const t = createDefender((index - 1.5) * 9 + randomBetween(-2, 2), state.cameraZ + randomBetween(3, 9), 0x8b5cf6, 30 + index, false, teammates)
+    const t = createDefender((index - 1.5) * 9 + randomBetween(-2, 2), state.cameraZ + randomBetween(3, 9), TEAMS.vikings.primary, 30 + index, 'vikings', false, teammates)
     t.role = 'man'
     t.speed = 13
   }
@@ -257,10 +264,48 @@ export function startGame() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  teamSelect.classList.add('is-hidden')
   statusText.textContent = state.firstPossession === 'offense'
     ? 'You won the toss and will receive.'
     : 'Opponent won the toss and will receive.'
   schedule(() => kickoff(state.firstPossession), 900)
+}
+
+// Shown before every new game so the player can pick their NFC North rival.
+// Picking a team recolors the opponent's end zone and sideline, then starts
+// the game; buildDefense() and startDefensiveSeries() pick up state.opponentTeam
+// for the players themselves.
+export function openTeamSelect() {
+  if (pendingTimer) clearTimeout(pendingTimer)
+  pendingTimer = undefined
+  state.running = false
+  releaseMouse()
+  gameOverPanel.classList.add('is-hidden')
+  playCall.classList.add('is-hidden')
+  defenseCall.classList.add('is-hidden')
+  patCall.classList.add('is-hidden')
+  renderTeamOptions()
+  teamSelect.classList.remove('is-hidden')
+}
+
+function renderTeamOptions() {
+  teamOptions.innerHTML = ''
+  for (const id of OPPONENT_TEAM_IDS) {
+    const team = TEAMS[id]
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.style.setProperty('--team-color', `#${team.primary.toString(16).padStart(6, '0')}`)
+    button.innerHTML = `<strong>${team.fullName}</strong><span>NFC North rival</span>`
+    button.addEventListener('click', () => chooseOpponent(id))
+    teamOptions.appendChild(button)
+  }
+}
+
+function chooseOpponent(id: TeamId) {
+  state.opponentTeam = id
+  applyOpponentTeam()
+  teamSelect.classList.add('is-hidden')
+  startGame()
 }
 
 // Central down-and-distance advance for every way the offense can end a play.
@@ -811,6 +856,7 @@ function assignPassProtection(isRun: boolean, longHold = false) {
 export function updateHud() {
   scoreEl.textContent = String(state.score)
   opponentScoreEl.textContent = String(state.opponentScore)
+  opponentLabelEl.textContent = TEAMS[state.opponentTeam].fullName
   quarterEl.textContent = state.quarter >= 5 ? 'OT' : ordinal(state.quarter)
   clockEl.textContent = formatClock(state.gameClock)
   updateScoreboard()

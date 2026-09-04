@@ -330,6 +330,10 @@ button {
   line-height: 1.25;
 }
 
+.team-options button {
+  border-top: 4px solid var(--team-color, #fbbf24);
+}
+
 .controls-panel {
   display: flex;
   align-items: center;

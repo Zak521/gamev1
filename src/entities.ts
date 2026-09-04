@@ -1,6 +1,6 @@
 import * as THREE from 'three'
-import { defenders, linemen, randomBetween, receivers, state, teammates } from './core.ts'
-import type { Defender, PassPlayId } from './core.ts'
+import { TEAMS, defenders, linemen, randomBetween, receivers, state, teammates } from './core.ts'
+import type { Defender, PassPlayId, TeamId } from './core.ts'
 import { camera, helmetDecal, jerseyNameplate, labelSprite, playerView, world } from './world.ts'
 
 // The first-person footballs, created inside createPlayerView(). Declared here so
@@ -11,7 +11,7 @@ export const balls = {
   thrown: null as unknown as THREE.Mesh,
 }
 
-export function createDefender(x: number, z: number, color: number, number: number, hasFootball = false, bucket: Defender[] = defenders) {
+export function createDefender(x: number, z: number, color: number, number: number, teamId: TeamId, hasFootball = false, bucket: Defender[] = defenders) {
   const group = new THREE.Group()
   const uniform = new THREE.MeshStandardMaterial({ color })
   const dark = new THREE.MeshStandardMaterial({ color: 0x111827 })
@@ -29,7 +29,7 @@ export function createDefender(x: number, z: number, color: number, number: numb
   jerseyNumber.renderOrder = 2
   ;(jerseyNumber.material as THREE.SpriteMaterial).depthTest = false
   group.add(jerseyNumber)
-  const nameplate = jerseyNameplate(color)
+  const nameplate = jerseyNameplate(teamId)
   nameplate.position.set(0, 1.85, 0.4)
   nameplate.scale.set(1.7, 0.42, 1)
   group.add(nameplate)
@@ -37,7 +37,7 @@ export function createDefender(x: number, z: number, color: number, number: numb
   helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.45
   group.add(helmet)
-  group.add(helmetDecal(color, 0.5, 2.45))
+  group.add(helmetDecal(teamId, 0.5, 2.45))
   const facemaskBar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.72, 8), padMaterial)
   facemaskBar.rotation.z = Math.PI / 2
   facemaskBar.position.set(0, 2.3, 0.48)
@@ -123,7 +123,7 @@ export function createDefender(x: number, z: number, color: number, number: numb
 
 export function createReceiver(x: number, breakX: number, targetX: number, routeDepth: number, number: number) {
   const group = new THREE.Group()
-  const uniform = new THREE.MeshStandardMaterial({ color: 0x8b5cf6 })
+  const uniform = new THREE.MeshStandardMaterial({ color: TEAMS.vikings.primary })
   const dark = new THREE.MeshStandardMaterial({ color: 0x0f172a })
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.35, 0.58), uniform)
   torso.position.y = 1.12
@@ -140,12 +140,12 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   helmet.scale.set(1.02, 0.94, 1.02)
   helmet.position.y = 2.05
   group.add(helmet)
-  group.add(helmetDecal(0x8b5cf6, 0.4, 2.05))
+  group.add(helmetDecal('vikings', 0.4, 2.05))
   const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), dark)
   facemask.rotation.z = Math.PI / 2
   facemask.position.set(0, 1.93, 0.34)
   group.add(facemask)
-  const nameplate = jerseyNameplate(0x8b5cf6)
+  const nameplate = jerseyNameplate('vikings')
   nameplate.position.set(0, 1.42, 0.31)
   nameplate.scale.set(1.5, 0.4, 1)
   group.add(nameplate)
@@ -198,7 +198,7 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
 
 export function createLineman(x: number, z: number, number: number) {
   const group = new THREE.Group()
-  const uniform = new THREE.MeshStandardMaterial({ color: 0x8b5cf6 })
+  const uniform = new THREE.MeshStandardMaterial({ color: TEAMS.vikings.primary })
   const dark = new THREE.MeshStandardMaterial({ color: 0x0f172a })
   const torso = new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.65, 0.9), uniform)
   torso.position.y = 1.22
@@ -215,7 +215,7 @@ export function createLineman(x: number, z: number, number: number) {
   helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.4
   group.add(helmet)
-  group.add(helmetDecal(0x8b5cf6, 0.5, 2.4))
+  group.add(helmetDecal('vikings', 0.5, 2.4))
   const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.58, 8), dark)
   facemask.rotation.z = Math.PI / 2
   facemask.position.set(0, 2.26, 0.44)
@@ -275,7 +275,7 @@ export function buildReceivers(play: PassPlayId) {
 
 export function createPlayerView() {
   const armMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a })
-  const jersey = new THREE.MeshStandardMaterial({ color: 0x8b5cf6 })
+  const jersey = new THREE.MeshStandardMaterial({ color: TEAMS.vikings.primary })
   for (const side of [-1, 1]) {
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.4, 10), armMaterial)
     arm.position.set(side * 0.62, -1.18, -1.75)
@@ -311,17 +311,18 @@ export function buildDefense() {
     world.remove(defender.mesh)
   }
   const los = state.cameraZ
+  const opponent = TEAMS[state.opponentTeam]
   // Four down linemen rushing the passer / attacking the run.
   const lineX = [-6.5, -2.4, 2.4, 6.5]
   for (let i = 0; i < 4; i += 1) {
-    const d = createDefender(lineX[i] + randomBetween(-0.4, 0.4), los - 8 - randomBetween(0, 1), 0xf97316, 90 + i)
+    const d = createDefender(lineX[i] + randomBetween(-0.4, 0.4), los - 8 - randomBetween(0, 1), opponent.primary, 90 + i, opponent.id)
     d.role = 'rush'
     d.speed = 12
   }
   // Three linebackers: a spy on the quarterback plus two underneath defenders.
   const lbX = [-6, 0, 6]
   for (let i = 0; i < 3; i += 1) {
-    const d = createDefender(lbX[i], los - 15 - randomBetween(0, 2), 0xf97316, 50 + i)
+    const d = createDefender(lbX[i], los - 15 - randomBetween(0, 2), opponent.primary, 50 + i, opponent.id)
     d.role = i === 1 ? 'spy' : 'man'
     d.coverIndex = i === 0 ? 0 : 2
     d.homeX = lbX[i]
@@ -331,7 +332,7 @@ export function buildDefense() {
   const dbX = [-15, 15, -6, 6]
   for (let i = 0; i < 4; i += 1) {
     const deep = i >= 2
-    const d = createDefender(dbX[i], los - (deep ? 30 : 17) - randomBetween(0, 3), 0xf97316, 20 + i)
+    const d = createDefender(dbX[i], los - (deep ? 30 : 17) - randomBetween(0, 3), opponent.primary, 20 + i, opponent.id)
     d.role = deep ? 'zone' : 'man'
     d.coverIndex = deep ? -1 : i
     d.homeX = dbX[i]

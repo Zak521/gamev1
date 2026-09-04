@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import {
   EYE_HEIGHT,
-  VIKINGS_PURPLE,
+  TEAMS,
   canvas,
   formatClock,
   keys,
@@ -9,7 +9,7 @@ import {
   randomBetween,
   state,
 } from './core.ts'
-import type { CrowdMember } from './core.ts'
+import type { CrowdMember, TeamId } from './core.ts'
 
 // ---------------------------------------------------------------------------
 // Renderer / scene / camera
@@ -149,14 +149,11 @@ export function labelSprite(text: string, color = '#ffffff') {
   return sprite
 }
 
-function teamName(jerseyColor: number) {
-  return jerseyColor === VIKINGS_PURPLE ? 'VIKINGS' : 'BEARS'
-}
-
 // A jersey nameplate across the chest. It respects depth so players in front
 // cleanly occlude the ones behind them instead of the text stacking up.
-export function jerseyNameplate(jerseyColor: number) {
-  const plate = labelSprite(teamName(jerseyColor), jerseyColor === VIKINGS_PURPLE ? '#ede9fe' : '#ffedd5')
+export function jerseyNameplate(teamId: TeamId) {
+  const team = TEAMS[teamId]
+  const plate = labelSprite(team.name, team.nameplateText)
   plate.scale.set(1.7, 0.44, 1)
   plate.renderOrder = 1
   return plate
@@ -179,6 +176,28 @@ function fieldNumber(text: string) {
   )
   number.rotation.x = -Math.PI / 2
   return number
+}
+
+// Wide banner text baked onto a flat plane and laid down like turf paint —
+// unlike a Sprite, a Mesh's rotation is respected, so this actually lies flat
+// on the field instead of standing up and billboarding toward the camera.
+function groundBanner(text: string, color: string) {
+  const bannerCanvas = document.createElement('canvas')
+  bannerCanvas.width = 512
+  bannerCanvas.height = 154
+  const ctx = bannerCanvas.getContext('2d')!
+  ctx.fillStyle = color
+  ctx.font = 'bold 92px Arial'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, 256, 80)
+  const texture = new THREE.CanvasTexture(bannerCanvas)
+  const banner = new THREE.Mesh(
+    new THREE.PlaneGeometry(11, 3.3),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }),
+  )
+  banner.rotation.x = -Math.PI / 2
+  return banner
 }
 
 // --- Team marks ---------------------------------------------------------------
@@ -255,13 +274,71 @@ function pawDecalTexture() {
   return pawDecalTextureCache
 }
 
+// Detroit Lions helmet mark: three diagonal claw-slash strokes.
+let lionClawsDecalTextureCache: THREE.CanvasTexture | null = null
+function lionClawsDecalTexture() {
+  if (lionClawsDecalTextureCache) return lionClawsDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineCap = 'round'
+  for (const [width, color] of [[20, '#e8f4ff'], [7, '#0076b6']] as const) {
+    ctx.strokeStyle = color
+    ctx.lineWidth = width
+    for (const offset of [-42, 0, 42]) {
+      ctx.beginPath()
+      ctx.moveTo(128 + offset - 44, 78)
+      ctx.lineTo(128 + offset + 44, 208)
+      ctx.stroke()
+    }
+  }
+  lionClawsDecalTextureCache = new THREE.CanvasTexture(c)
+  return lionClawsDecalTextureCache
+}
+
+// Green Bay Packers helmet mark: the gold-ringed oval "G".
+let packersGDecalTextureCache: THREE.CanvasTexture | null = null
+function packersGDecalTexture() {
+  if (packersGDecalTextureCache) return packersGDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.beginPath()
+  ctx.ellipse(128, 128, 100, 78, 0, 0, Math.PI * 2)
+  ctx.fillStyle = '#203731'
+  ctx.fill()
+  ctx.lineWidth = 10
+  ctx.strokeStyle = '#ffb612'
+  ctx.stroke()
+  ctx.fillStyle = '#ffb612'
+  ctx.font = 'bold 132px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('G', 128, 140)
+  packersGDecalTextureCache = new THREE.CanvasTexture(c)
+  return packersGDecalTextureCache
+}
+
+function decalTextureForTeam(teamId: TeamId) {
+  switch (teamId) {
+    case 'vikings':
+      return hornsDecalTexture()
+    case 'lions':
+      return lionClawsDecalTexture()
+    case 'packers':
+      return packersGDecalTexture()
+    case 'bears':
+      return pawDecalTexture()
+  }
+}
+
 // A helmet decal: a small plane on each side of the helmet, textured with the
 // team's mark. The far side is mirrored so a directional mark (the horn) reads
 // correctly from both profiles.
-export function helmetDecal(teamColor: number, radius: number, y: number) {
+export function helmetDecal(teamId: TeamId, radius: number, y: number) {
   const group = new THREE.Group()
-  const isVikings = teamColor === VIKINGS_PURPLE
-  const texture = isVikings ? hornsDecalTexture() : pawDecalTexture()
+  const isVikings = teamId === 'vikings'
+  const texture = decalTextureForTeam(teamId)
   const w = radius * (isVikings ? 1.35 : 1.05)
   const h = radius * (isVikings ? 1.2 : 1.05)
   for (const side of [-1, 1]) {
@@ -310,12 +387,57 @@ function vikingsLogoTexture() {
 // Field, stadium, sky, sidelines
 // ---------------------------------------------------------------------------
 
+// A small tileable grass-blade texture in shades of the given base color —
+// used as the turf's `map` so the field reads as individual mowed blades
+// instead of a single flat block of color.
+const grassTextureCache = new Map<number, THREE.CanvasTexture>()
+function grassTexture(colorHex: number) {
+  const cached = grassTextureCache.get(colorHex)
+  if (cached) return cached
+  const size = 128
+  const c = document.createElement('canvas')
+  c.width = c.height = size
+  const ctx = c.getContext('2d')!
+  const base = new THREE.Color(colorHex)
+  ctx.fillStyle = `#${base.getHexString()}`
+  ctx.fillRect(0, 0, size, size)
+  const blade = new THREE.Color()
+  for (let i = 0; i < 1100; i += 1) {
+    blade.copy(base).offsetHSL(0, 0, randomBetween(-0.08, 0.08))
+    ctx.strokeStyle = `#${blade.getHexString()}`
+    ctx.lineWidth = randomBetween(1, 1.8)
+    const x = Math.random() * size
+    const y = Math.random() * size
+    const angle = randomBetween(0, Math.PI * 2)
+    const len = randomBetween(2, 5)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len)
+    ctx.stroke()
+  }
+  const texture = new THREE.CanvasTexture(c)
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+  grassTextureCache.set(colorHex, texture)
+  return texture
+}
+
+// A clone of the cached grass texture with tiling set for a plane of the
+// given world-space size, so the blades stay a consistent size instead of
+// stretching across bigger meshes like the apron.
+function tiledGrass(colorHex: number, width: number, depth: number) {
+  const texture = grassTexture(colorHex).clone()
+  texture.needsUpdate = true
+  const TILE = 3 // yards per texture repeat
+  texture.repeat.set(width / TILE, depth / TILE)
+  return texture
+}
+
 export function createField() {
   // A groundskeeping apron beyond the sidelines so the field doesn't end at the
   // white line, then the playing surface itself.
   const apron = new THREE.Mesh(
     new THREE.PlaneGeometry(150, 240),
-    new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 1 }),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(0x14532d, 150, 240), roughness: 1 }),
   )
   apron.rotation.x = -Math.PI / 2
   apron.position.set(0, -0.04, -42)
@@ -323,7 +445,7 @@ export function createField() {
 
   const field = new THREE.Mesh(
     new THREE.PlaneGeometry(53.3, 120),
-    new THREE.MeshStandardMaterial({ color: 0x1a7a3f, roughness: 0.95 }),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(0x1a7a3f, 53.3, 120), roughness: 0.95 }),
   )
   field.rotation.x = -Math.PI / 2
   field.position.set(0, 0, -42)
@@ -332,9 +454,10 @@ export function createField() {
   // Alternating mow stripes down the 100 yards of playing field.
   const stripeShades = [0x1c8446, 0x17703b]
   for (let yard = 0; yard < 100; yard += 5) {
+    const shade = stripeShades[(yard / 5) % 2]
     const stripe = new THREE.Mesh(
       new THREE.PlaneGeometry(53.3, 5),
-      new THREE.MeshStandardMaterial({ color: stripeShades[(yard / 5) % 2], roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(shade, 53.3, 5), roughness: 0.95 }),
     )
     stripe.rotation.x = -Math.PI / 2
     stripe.position.set(0, 0.008, 8 - yard - 2.5)
@@ -412,31 +535,20 @@ export function createField() {
     world.add(sideline)
   }
 
-  const endZone = new THREE.Mesh(
-    new THREE.PlaneGeometry(53.3, 10),
-    new THREE.MeshStandardMaterial({ color: 0xf97316 }),
-  )
-  endZone.rotation.x = -Math.PI / 2
-  endZone.position.set(0, 0.02, -97)
-  world.add(endZone)
-  const touchdown = labelSprite('BOO BEARS', '#fff7ed')
-  touchdown.position.set(0, 0.08, -97)
-  touchdown.rotation.x = -Math.PI / 2
-  touchdown.scale.set(11, 3.3, 1)
-  world.add(touchdown)
-
-  const homeEndZone = new THREE.Mesh(
-    new THREE.PlaneGeometry(53.3, 10),
-    new THREE.MeshStandardMaterial({ color: 0x4c1d95 }),
-  )
-  homeEndZone.rotation.x = -Math.PI / 2
-  homeEndZone.position.set(0, 0.02, 13)
-  world.add(homeEndZone)
-  const homeEndZoneLabel = labelSprite('GO VIKINGS', '#fef08a')
-  homeEndZoneLabel.position.set(0, 0.08, 13)
-  homeEndZoneLabel.rotation.x = -Math.PI / 2
-  homeEndZoneLabel.scale.set(11, 3.3, 1)
-  world.add(homeEndZoneLabel)
+  // Both end zones belong to the Vikings — they're the home team on this
+  // field regardless of who the opponent is, so both ends read "GO VIKINGS".
+  for (const z of [-97, 13]) {
+    const endZone = new THREE.Mesh(
+      new THREE.PlaneGeometry(53.3, 10),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(TEAMS.vikings.primary, 53.3, 10), roughness: 0.92 }),
+    )
+    endZone.rotation.x = -Math.PI / 2
+    endZone.position.set(0, 0.02, z)
+    world.add(endZone)
+    const banner = groundBanner('GO VIKINGS', '#fef08a')
+    banner.position.set(0, 0.08, z)
+    world.add(banner)
+  }
 
   createGoalPost(-102, 1)
   createGoalPost(18, -1)
@@ -669,7 +781,7 @@ export function createSky() {
 
 // A single standing sideline figure: a benched player (with pads + helmet) or a
 // head coach (bare head, ball cap, khakis). Both wear their team's colors.
-function createSidelineFigure(x: number, z: number, jersey: number, trim: number, facing: number, isCoach: boolean) {
+function createSidelineFigure(x: number, z: number, jersey: number, trim: number, facing: number, isCoach: boolean, parent: THREE.Object3D = world) {
   const group = new THREE.Group()
   const jerseyMat = new THREE.MeshStandardMaterial({ color: jersey, roughness: 0.8 })
   const trimMat = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.7 })
@@ -742,32 +854,53 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
   group.position.set(x, 0, z)
   group.rotation.y = facing + randomBetween(-0.35, 0.35)
   group.scale.setScalar(randomBetween(0.94, 1.06))
-  world.add(group)
+  parent.add(group)
 }
 
-// Benches and coaching staff on each sideline, in the right team colors:
-// the Vikings (purple) on the near sideline, the Bears (orange) across the way.
-export function createSidelines() {
-  const khaki = 0xcbb58a
-  const teams = [
-    { jersey: 0x8b5cf6, trim: 0x0f172a, coachTop: 0x4c1d95, sideX: -29, facing: Math.PI / 2 },
-    { jersey: 0xf97316, trim: 0x111827, coachTop: 0xc2410c, sideX: 29, facing: -Math.PI / 2 },
-  ]
-  for (const team of teams) {
-    const inward = team.sideX < 0 ? 1 : -1
-    // A deep bench: three staggered rows of players milling in the team area,
-    // spanning most of the sideline between the 25s.
-    for (let i = 0; i < 26; i += 1) {
-      const z = -12 - i * 2.35
-      const rowOffset = (i % 3) * 1.05
-      const x = team.sideX + inward * (rowOffset + randomBetween(-0.3, 0.3))
-      createSidelineFigure(x, z, team.jersey, team.trim, team.facing, false)
-    }
-    // Head coach out front near midfield, plus two assistants down the line.
-    createSidelineFigure(team.sideX + inward * 2.1, -42, team.coachTop, khaki, team.facing, true)
-    createSidelineFigure(team.sideX + inward * 1.6, -24, team.coachTop, khaki, team.facing, true)
-    createSidelineFigure(team.sideX + inward * 1.6, -66, team.coachTop, khaki, team.facing, true)
+const KHAKI = 0xcbb58a
+
+// One sideline's worth of benched players plus a head coach and two
+// assistants, all in the given team's colors.
+function buildSidelineBench(sideX: number, facing: number, jersey: number, trim: number, coachTop: number, parent: THREE.Object3D) {
+  const inward = sideX < 0 ? 1 : -1
+  // A deep bench: three staggered rows of players milling in the team area,
+  // spanning most of the sideline between the 25s.
+  for (let i = 0; i < 26; i += 1) {
+    const z = -12 - i * 2.35
+    const rowOffset = (i % 3) * 1.05
+    const x = sideX + inward * (rowOffset + randomBetween(-0.3, 0.3))
+    createSidelineFigure(x, z, jersey, trim, facing, false, parent)
   }
+  // Head coach out front near midfield, plus two assistants down the line.
+  createSidelineFigure(sideX + inward * 2.1, -42, coachTop, KHAKI, facing, true, parent)
+  createSidelineFigure(sideX + inward * 1.6, -24, coachTop, KHAKI, facing, true, parent)
+  createSidelineFigure(sideX + inward * 1.6, -66, coachTop, KHAKI, facing, true, parent)
+}
+
+// The opponent's bench lives in its own group so a new game can rebuild it in
+// a different team's colors without touching the (static) Vikings sideline.
+let opponentSidelineGroup: THREE.Group | null = null
+export function buildOpponentSideline() {
+  if (opponentSidelineGroup) world.remove(opponentSidelineGroup)
+  const group = new THREE.Group()
+  const team = TEAMS[state.opponentTeam]
+  buildSidelineBench(29, -Math.PI / 2, team.primary, 0x111827, team.accent, group)
+  world.add(group)
+  opponentSidelineGroup = group
+}
+
+// Benches and coaching staff on each sideline: the Vikings (home, purple) on
+// the near side, and the chosen NFC North opponent across the way.
+export function createSidelines() {
+  buildSidelineBench(-29, Math.PI / 2, TEAMS.vikings.primary, 0x0f172a, TEAMS.vikings.accent, world)
+  buildOpponentSideline()
+}
+
+// Rebuilds the opponent-colored sideline to match state.opponentTeam. Call
+// once, right after the team is chosen. (Both end zones stay Vikings' colors
+// — they're the home team regardless of who the opponent is.)
+export function applyOpponentTeam() {
+  buildOpponentSideline()
 }
 
 // ---------------------------------------------------------------------------
@@ -786,7 +919,7 @@ export function updateScoreboard() {
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.font = 'bold 44px Arial'
-  ctx.fillText(`VIKINGS ${state.score}   BEARS ${state.opponentScore}`, 256, 42)
+  ctx.fillText(`VIKINGS ${state.score}   ${TEAMS[state.opponentTeam].name} ${state.opponentScore}`, 256, 42)
   ctx.font = 'bold 30px Arial'
   ctx.fillStyle = '#e2e8f0'
   ctx.fillText(`${state.quarter >= 5 ? 'OT' : ordinal(state.quarter)}   ${formatClock(state.gameClock)}`, 256, 92)
