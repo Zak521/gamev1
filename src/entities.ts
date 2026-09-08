@@ -11,27 +11,62 @@ export const balls = {
   thrown: null as unknown as THREE.Mesh,
 }
 
+// Per-team uniform kits. A team listed here gets a coloured helmet, facemask
+// and pants plus jersey striping (shoulder yoke, sleeve hoops, collar, pant
+// stripe); every other team keeps the plain dark helmet and pants.
+//   band  - shoulder yoke, sleeve hoops and collar
+//   line  - the thin contrast stripe that borders the band
+//   pants stripe - a wide stripe down the leg with a `line`-coloured centre
+type UniformKit = {
+  helmet: number
+  helmetMetal: number
+  facemask: number
+  pants: number
+  numberColor: string
+  band: number
+  line: number
+  pantStripe: number
+}
+
+const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
+  // Green Bay: gold helmet, green facemask, mustard pants, gold-and-white stripes.
+  packers: {
+    helmet: TEAMS.packers.accent,
+    helmetMetal: 0.35,
+    facemask: 0x1c3a2c,
+    pants: 0xd8b44b,
+    numberColor: '#ffd23f',
+    band: TEAMS.packers.accent,
+    line: 0xf4f4f0,
+    pantStripe: 0x203731,
+  },
+  // Detroit: silver helmet, Honolulu-blue facemask, silver pants, white numbers,
+  // silver stripes with a blue border and a blue pant stripe.
+  lions: {
+    helmet: 0xccd1d5,
+    helmetMetal: 0.55,
+    facemask: TEAMS.lions.primary,
+    pants: 0xb7bbbf,
+    numberColor: '#ffffff',
+    band: 0xd4d8dc,
+    line: TEAMS.lions.primary,
+    pantStripe: TEAMS.lions.primary,
+  },
+}
+
 export function createDefender(x: number, z: number, color: number, number: number, teamId: TeamId, hasFootball = false, bucket: Defender[] = defenders) {
   const group = new THREE.Group()
   const uniform = new THREE.MeshStandardMaterial({ color })
   const dark = new THREE.MeshStandardMaterial({ color: 0x111827 })
   const padMaterial = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.75 })
-  // Green Bay dresses in the classic set: a gold helmet with a green facemask,
-  // gold ("mustard") pants, and gold-and-white striping on the jersey sleeves
-  // and collar. Everyone else keeps the plain dark helmet and pants.
-  const isPackers = teamId === 'packers'
-  const packerGold = TEAMS.packers.accent
-  const helmetMaterial = isPackers
-    ? new THREE.MeshStandardMaterial({ color: packerGold, roughness: 0.35, metalness: 0.35 })
+  const kit = UNIFORM_KITS[teamId]
+  const helmetMaterial = kit
+    ? new THREE.MeshStandardMaterial({ color: kit.helmet, roughness: 0.35, metalness: kit.helmetMetal })
     : dark
-  const pantsMaterial = isPackers
-    ? new THREE.MeshStandardMaterial({ color: 0xd8b44b, roughness: 0.6 })
-    : dark
-  const facemaskMaterial = isPackers
-    ? new THREE.MeshStandardMaterial({ color: 0x1c3a2c, roughness: 0.6 })
-    : padMaterial
-  const trimGold = new THREE.MeshStandardMaterial({ color: packerGold, roughness: 0.45 })
-  const trimWhite = new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.5 })
+  const pantsMaterial = kit ? new THREE.MeshStandardMaterial({ color: kit.pants, roughness: 0.6 }) : dark
+  const facemaskMaterial = kit ? new THREE.MeshStandardMaterial({ color: kit.facemask, roughness: 0.6 }) : padMaterial
+  const bandMaterial = kit ? new THREE.MeshStandardMaterial({ color: kit.band, roughness: 0.45 }) : null
+  const lineMaterial = kit ? new THREE.MeshStandardMaterial({ color: kit.line, roughness: 0.5 }) : null
   const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.7, 0.75), uniform)
   torso.position.y = 1.25
   group.add(torso)
@@ -39,22 +74,23 @@ export function createDefender(x: number, z: number, color: number, number: numb
   shoulderPads.scale.set(0.88, 0.28, 0.5)
   shoulderPads.position.y = 1.95
   group.add(shoulderPads)
-  if (isPackers) {
-    // Gold-white-gold band wrapping the shoulder yoke, plus a gold collar hoop.
+  if (kit && bandMaterial && lineMaterial) {
+    // A band across the shoulder yoke with a thin contrast line beneath it,
+    // plus a matching collar hoop.
     for (const stripe of [
-      { y: 2.06, h: 0.1, mat: trimGold },
-      { y: 1.95, h: 0.055, mat: trimWhite },
+      { y: 2.06, h: 0.1, mat: bandMaterial },
+      { y: 1.95, h: 0.055, mat: lineMaterial },
     ]) {
       const band = new THREE.Mesh(new THREE.BoxGeometry(1.46, stripe.h, 0.82), stripe.mat)
       band.position.set(0, stripe.y, 0)
       group.add(band)
     }
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.045, 8, 18), trimGold)
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.045, 8, 18), bandMaterial)
     collar.rotation.x = Math.PI / 2
     collar.position.set(0, 2.04, 0.02)
     group.add(collar)
   }
-  const jerseyNumber = labelSprite(String(number), isPackers ? '#ffd23f' : '#ffffff')
+  const jerseyNumber = labelSprite(String(number), kit?.numberColor ?? '#ffffff')
   jerseyNumber.position.set(0, 1.25, 0.47)
   jerseyNumber.scale.set(1.3, 0.7, 1)
   jerseyNumber.renderOrder = 2
@@ -82,16 +118,17 @@ export function createDefender(x: number, z: number, color: number, number: numb
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 1.1, 8), pantsMaterial)
     leg.position.set(legX, 0.42, 0)
     group.add(leg)
-    if (isPackers) {
-      // A green pant stripe with a thin white centre, down the outside of each
-      // leg — the trim that breaks up Green Bay's gold pants.
+    if (kit && lineMaterial) {
+      // A wide stripe with a thin contrast centre, down the outside of each leg.
       const stripeX = legX + (legX < 0 ? -0.16 : 0.16)
-      const greenStripe = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.95, 0.05), uniform)
-      greenStripe.position.set(stripeX, 0.5, 0.0)
-      group.add(greenStripe)
-      const whiteStripe = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.95, 0.05), trimWhite)
-      whiteStripe.position.set(stripeX, 0.5, 0.03)
-      group.add(whiteStripe)
+      const wideStripe = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.95, 0.05), new THREE.MeshStandardMaterial({ color: kit.pantStripe, roughness: 0.5 }))
+      wideStripe.position.set(stripeX, 0.5, 0.0)
+      group.add(wideStripe)
+      if (kit.line !== kit.pantStripe) {
+        const centreStripe = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.95, 0.05), lineMaterial)
+        centreStripe.position.set(stripeX, 0.5, 0.03)
+        group.add(centreStripe)
+      }
     }
     const kneePad = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), padMaterial)
     kneePad.scale.set(1, 0.7, 0.55)
@@ -112,13 +149,13 @@ export function createDefender(x: number, z: number, color: number, number: numb
     sleeve.position.set(armSide, 1.55, 0)
     sleeve.rotation.z = -inward * 0.24
     group.add(sleeve)
-    if (isPackers) {
-      // Gold-white-gold hoops around the sleeve cuff — Green Bay's sleeve stripe.
-      // Parented to the sleeve so they follow its tilt without extra maths.
+    if (kit && bandMaterial && lineMaterial) {
+      // band-line-band hoops around the sleeve cuff, parented to the sleeve so
+      // they follow its tilt without extra maths.
       for (const hoop of [
-        { y: -0.14, h: 0.09, mat: trimGold },
-        { y: -0.22, h: 0.05, mat: trimWhite },
-        { y: -0.3, h: 0.09, mat: trimGold },
+        { y: -0.14, h: 0.09, mat: bandMaterial },
+        { y: -0.22, h: 0.05, mat: lineMaterial },
+        { y: -0.3, h: 0.09, mat: bandMaterial },
       ]) {
         const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.168, hoop.h, 12), hoop.mat)
         ring.position.y = hoop.y
