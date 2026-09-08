@@ -72,6 +72,69 @@ const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     helmetStripe: [TEAMS.bears.accent, 0xf4f4f0],
     socks: [0x17315c, TEAMS.bears.accent],
   },
+  // Minnesota: pearl-white helmet with the purple horns, purple facemask, white
+  // pants with a purple-gold stripe, gold-and-white shoulder and sleeve stripes,
+  // pale-gold numbers, and purple socks with a gold band.
+  vikings: {
+    helmet: 0xeef0f2,
+    helmetMetal: 0.12,
+    facemask: TEAMS.vikings.accent,
+    pants: 0xebebe8,
+    numberColor: '#fef08a',
+    band: 0xffc62f,
+    line: 0xf4f4f0,
+    pantStripe: [TEAMS.vikings.primary, 0xffc62f],
+    socks: [TEAMS.vikings.primary, 0xffc62f],
+  },
+}
+
+const kitMat = (color: number, roughness = 0.5) => new THREE.MeshStandardMaterial({ color, roughness })
+
+// The three pieces of kit striping, each sized to the player model it is added
+// to (the receiver, lineman and defender bodies are built at different scales).
+function addKitYoke(
+  group: THREE.Group,
+  kit: UniformKit,
+  d: { width: number; depth: number; bandY: number; lineY: number; collarR: number; collarY: number },
+) {
+  const band = new THREE.Mesh(new THREE.BoxGeometry(d.width, 0.1, d.depth), kitMat(kit.band, 0.45))
+  band.position.y = d.bandY
+  group.add(band)
+  const border = new THREE.Mesh(new THREE.BoxGeometry(d.width, 0.055, d.depth), kitMat(kit.line))
+  border.position.y = d.lineY
+  group.add(border)
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(d.collarR, 0.045, 8, 18), kitMat(kit.band, 0.45))
+  collar.rotation.x = Math.PI / 2
+  collar.position.set(0, d.collarY, 0.02)
+  group.add(collar)
+}
+
+// band-line-band hoops around a sleeve's cuff, added in the sleeve's local space
+// so they inherit its tilt.
+function addKitSleeveHoops(sleeve: THREE.Mesh, kit: UniformKit, cuffY: number, radius: number) {
+  for (const hoop of [
+    { y: cuffY + 0.08, h: 0.09, color: kit.band },
+    { y: cuffY, h: 0.05, color: kit.line },
+    { y: cuffY - 0.08, h: 0.09, color: kit.band },
+  ]) {
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 0.96, hoop.h, 12), kitMat(hoop.color))
+    ring.position.y = hoop.y
+    sleeve.add(ring)
+  }
+}
+
+// A wide stripe with a thin contrast centre down the outside of one leg; the
+// centre is skipped when the two colours match.
+function addKitLegStripe(group: THREE.Group, kit: UniformKit, stripeX: number, y: number, height: number) {
+  const [wide, centre] = kit.pantStripe
+  const wideStripe = new THREE.Mesh(new THREE.BoxGeometry(0.12, height, 0.05), kitMat(wide))
+  wideStripe.position.set(stripeX, y, 0)
+  group.add(wideStripe)
+  if (wide !== centre) {
+    const centreStripe = new THREE.Mesh(new THREE.BoxGeometry(0.045, height, 0.05), kitMat(centre))
+    centreStripe.position.set(stripeX, y, 0.03)
+    group.add(centreStripe)
+  }
 }
 
 export function createDefender(x: number, z: number, color: number, number: number, teamId: TeamId, hasFootball = false, bucket: Defender[] = defenders) {
@@ -265,8 +328,12 @@ export function createDefender(x: number, z: number, color: number, number: numb
 
 export function createReceiver(x: number, breakX: number, targetX: number, routeDepth: number, number: number) {
   const group = new THREE.Group()
+  const kit = UNIFORM_KITS.vikings!
   const uniform = new THREE.MeshStandardMaterial({ color: TEAMS.vikings.primary })
   const dark = new THREE.MeshStandardMaterial({ color: 0x0f172a })
+  const helmetMaterial = new THREE.MeshStandardMaterial({ color: kit.helmet, roughness: 0.35, metalness: kit.helmetMetal })
+  const facemaskMaterial = new THREE.MeshStandardMaterial({ color: kit.facemask, roughness: 0.6 })
+  const pantsMaterial = new THREE.MeshStandardMaterial({ color: kit.pants, roughness: 0.6 })
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.35, 0.58), uniform)
   torso.position.y = 1.12
   group.add(torso)
@@ -275,15 +342,16 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   shoulderPads.scale.set(1, 0.32, 0.6)
   shoulderPads.position.y = 1.72
   group.add(shoulderPads)
+  addKitYoke(group, kit, { width: 0.98, depth: 0.62, bandY: 1.8, lineY: 1.72, collarR: 0.17, collarY: 1.82 })
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.22, 8), skin)
   neck.position.y = 1.84
   group.add(neck)
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 8), dark)
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 8), helmetMaterial)
   helmet.scale.set(1.02, 0.94, 1.02)
   helmet.position.y = 2.05
   group.add(helmet)
   group.add(helmetDecal('vikings', 0.4, 2.05))
-  const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), dark)
+  const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), facemaskMaterial)
   facemask.rotation.z = Math.PI / 2
   facemask.position.set(0, 1.93, 0.34)
   group.add(facemask)
@@ -292,9 +360,10 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   nameplate.scale.set(1.5, 0.4, 1)
   group.add(nameplate)
   for (const legX of [-0.22, 0.22]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.9, 7), dark)
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.9, 7), pantsMaterial)
     leg.position.set(legX, 0.38, 0)
     group.add(leg)
+    addKitLegStripe(group, kit, legX + (legX < 0 ? -0.11 : 0.11), 0.42, 0.78)
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.13, 0.5), dark)
     shoe.position.set(legX, 0.05, 0.14)
     group.add(shoe)
@@ -305,6 +374,7 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
     arm.position.set(armX, 1.5, -0.06)
     arm.rotation.z = -inward * 0.32
     group.add(arm)
+    addKitSleeveHoops(arm, kit, -0.15, 0.115)
     const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.5, 7), skin)
     forearm.position.set(armX + inward * 0.14, 1.06, 0)
     forearm.rotation.z = -inward * 0.16
@@ -340,8 +410,12 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
 
 export function createLineman(x: number, z: number, number: number) {
   const group = new THREE.Group()
+  const kit = UNIFORM_KITS.vikings!
   const uniform = new THREE.MeshStandardMaterial({ color: TEAMS.vikings.primary })
   const dark = new THREE.MeshStandardMaterial({ color: 0x0f172a })
+  const helmetMaterial = new THREE.MeshStandardMaterial({ color: kit.helmet, roughness: 0.35, metalness: kit.helmetMetal })
+  const facemaskMaterial = new THREE.MeshStandardMaterial({ color: kit.facemask, roughness: 0.6 })
+  const pantsMaterial = new THREE.MeshStandardMaterial({ color: kit.pants, roughness: 0.6 })
   const torso = new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.65, 0.9), uniform)
   torso.position.y = 1.22
   group.add(torso)
@@ -349,16 +423,17 @@ export function createLineman(x: number, z: number, number: number) {
   pads.scale.set(1.05, 0.32, 0.58)
   pads.position.y = 1.92
   group.add(pads)
+  addKitYoke(group, kit, { width: 1.5, depth: 0.96, bandY: 2.0, lineY: 1.9, collarR: 0.24, collarY: 2.02 })
   const skin = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.24, 8), skin)
   neck.position.y = 2.02
   group.add(neck)
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 8), dark)
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 8), helmetMaterial)
   helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.4
   group.add(helmet)
   group.add(helmetDecal('vikings', 0.5, 2.4))
-  const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.58, 8), dark)
+  const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.58, 8), facemaskMaterial)
   facemask.rotation.z = Math.PI / 2
   facemask.position.set(0, 2.26, 0.44)
   group.add(facemask)
@@ -369,6 +444,7 @@ export function createLineman(x: number, z: number, number: number) {
     sleeve.position.set(armX, 1.5, 0.02)
     sleeve.rotation.z = -inward * 0.3
     group.add(sleeve)
+    addKitSleeveHoops(sleeve, kit, -0.22, 0.205)
     const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.15, 0.62, 8), skin)
     forearm.position.set(armX + inward * 0.16, 0.94, 0.16)
     forearm.rotation.z = -inward * 0.18
@@ -379,9 +455,10 @@ export function createLineman(x: number, z: number, number: number) {
     group.add(glove)
   }
   for (const legX of [-0.34, 0.34]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 1.05, 8), dark)
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 1.05, 8), pantsMaterial)
     leg.position.set(legX, 0.44, 0)
     group.add(leg)
+    addKitLegStripe(group, kit, legX + (legX < 0 ? -0.16 : 0.16), 0.5, 0.9)
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.56), dark)
     shoe.position.set(legX, 0.06, 0.16)
     group.add(shoe)
@@ -418,6 +495,7 @@ export function buildReceivers(play: PassPlayId) {
 export function createPlayerView() {
   const armMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a })
   const jersey = new THREE.MeshStandardMaterial({ color: TEAMS.vikings.primary })
+  const cuffGold = new THREE.MeshStandardMaterial({ color: UNIFORM_KITS.vikings!.band, roughness: 0.5 })
   for (const side of [-1, 1]) {
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.4, 10), armMaterial)
     arm.position.set(side * 0.62, -1.18, -1.75)
@@ -427,6 +505,10 @@ export function createPlayerView() {
     const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.48), jersey)
     sleeve.position.set(side * 0.7, -0.65, -1.65)
     playerView.add(sleeve)
+    // Gold cuff stripe wrapped around the wrist end of the visible sleeve.
+    const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.09, 0.5), cuffGold)
+    cuff.position.set(side * 0.7, -0.8, -1.65)
+    playerView.add(cuff)
   }
 
   balls.player = new THREE.Mesh(
