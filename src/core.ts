@@ -125,6 +125,7 @@ export type TeamId = 'vikings' | 'lions' | 'packers' | 'bears'
 export type TeamInfo = {
   id: TeamId
   name: string // short scoreboard/jersey name, e.g. "PACKERS"
+  abbr: string // 2-3 letter score-bug abbreviation, e.g. "GB"
   fullName: string // e.g. "Green Bay Packers"
   primary: number // jersey, helmet, and end-zone color
   accent: number // ball-carrier highlight, coach polo, and nameplate text tint
@@ -135,6 +136,7 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
   vikings: {
     id: 'vikings',
     name: 'VIKINGS',
+    abbr: 'MIN',
     fullName: 'Minnesota Vikings',
     primary: VIKINGS_PURPLE,
     accent: 0x4c1d95,
@@ -143,6 +145,7 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
   lions: {
     id: 'lions',
     name: 'LIONS',
+    abbr: 'DET',
     fullName: 'Detroit Lions',
     primary: 0x0076b6,
     accent: 0xb0b7bc,
@@ -151,6 +154,7 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
   packers: {
     id: 'packers',
     name: 'PACKERS',
+    abbr: 'GB',
     fullName: 'Green Bay Packers',
     primary: 0x203731,
     accent: 0xffb612,
@@ -159,6 +163,7 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
   bears: {
     id: 'bears',
     name: 'BEARS',
+    abbr: 'CHI',
     fullName: 'Chicago Bears',
     primary: 0x0b162a,
     accent: 0xc83803,
@@ -179,6 +184,11 @@ export function ordinal(n: number) {
 
 export function randomBetween(min: number, max: number) {
   return Math.random() * (max - min) + min
+}
+
+// three.js-style 0xRRGGBB integer → CSS hex string, for tinting the DOM score-bug chips.
+export function cssHex(color: number) {
+  return `#${color.toString(16).padStart(6, '0')}`
 }
 
 // Yard line 0-100 measured from the user's own goal line (100 = opponent goal = TD).
@@ -255,16 +265,28 @@ const app = document.querySelector<HTMLDivElement>('#app')!
 app.innerHTML = `
   <div class="game-shell">
     <header class="top-bar">
-      <div class="score-card"><span class="label">You</span><strong id="score">0</strong></div>
-      <div class="score-card"><span id="opponentLabel" class="label">Opponent</span><strong id="opponentScore">0</strong></div>
-      <div class="score-card"><span class="label">Qtr</span><strong id="quarter">1st</strong></div>
-      <div class="score-card"><span class="label">Clock</span><strong id="clock">5:00</strong></div>
-      <div class="score-card"><span id="yardsLabel" class="label">Ball on</span><strong id="yards">OWN 20</strong></div>
-      <div class="score-card"><span class="label">Down</span><strong id="down">1st &amp; 10</strong></div>
       <button id="resetButton" class="reset-button" type="button">New Game</button>
     </header>
     <div class="game-frame">
       <canvas id="gameCanvas" width="960" height="540" aria-label="3D first-person football game"></canvas>
+      <div class="score-bug" role="status" aria-live="polite" aria-label="Scoreboard">
+        <div class="score-bug-teams">
+          <div class="score-bug-row">
+            <span id="homeChip" class="score-bug-chip"></span>
+            <span class="score-bug-abbr">MIN</span>
+            <span id="score" class="score-bug-pts">0</span>
+          </div>
+          <div class="score-bug-row">
+            <span id="oppChip" class="score-bug-chip"></span>
+            <span id="opponentLabel" class="score-bug-abbr">OPP</span>
+            <span id="opponentScore" class="score-bug-pts">0</span>
+          </div>
+        </div>
+        <div class="score-bug-info">
+          <span class="score-bug-clock"><span id="quarter">1st</span> &middot; <span id="clock">5:00</span></span>
+          <span class="score-bug-dd"><span id="down">1st &amp; 10</span> &middot; <span id="yardsLabel">Ball on</span> <span id="yards">OWN 20</span></span>
+        </div>
+      </div>
       <div class="status-panel"><span id="statusText">Break through the defense!</span></div>
       <div id="kickMeter" class="kick-meter is-hidden" aria-live="polite">
         <span id="kickPrompt">Press Space to kick</span>
@@ -326,6 +348,9 @@ export const canvas = document.querySelector<HTMLCanvasElement>('#gameCanvas')!
 export const scoreEl = document.querySelector<HTMLElement>('#score')!
 export const opponentScoreEl = document.querySelector<HTMLElement>('#opponentScore')!
 export const opponentLabelEl = document.querySelector<HTMLElement>('#opponentLabel')!
+export const oppChipEl = document.querySelector<HTMLElement>('#oppChip')!
+// The home (Vikings) score-bug chip is fixed; the opponent chip is tinted in updateHud().
+document.querySelector<HTMLElement>('#homeChip')!.style.background = cssHex(VIKINGS_PURPLE)
 export const yardsLabelEl = document.querySelector<HTMLElement>('#yardsLabel')!
 export const yardsEl = document.querySelector<HTMLElement>('#yards')!
 export const downEl = document.querySelector<HTMLElement>('#down')!

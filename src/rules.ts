@@ -17,6 +17,7 @@ import {
   defenseKicker,
   defenseOptions,
   defenders,
+  cssHex,
   defensiveSpotZ,
   describeSpot,
   downAndDistance,
@@ -34,6 +35,7 @@ import {
   linemen,
   loadSeason,
   losZ,
+  oppChipEl,
   opponentLabelEl,
   opponentScoreEl,
   ordinal,
@@ -856,7 +858,8 @@ function assignPassProtection(isRun: boolean, longHold = false) {
 export function updateHud() {
   scoreEl.textContent = String(state.score)
   opponentScoreEl.textContent = String(state.opponentScore)
-  opponentLabelEl.textContent = TEAMS[state.opponentTeam].fullName
+  opponentLabelEl.textContent = TEAMS[state.opponentTeam].abbr
+  oppChipEl.style.background = cssHex(TEAMS[state.opponentTeam].primary)
   quarterEl.textContent = state.quarter >= 5 ? 'OT' : ordinal(state.quarter)
   clockEl.textContent = formatClock(state.gameClock)
   updateScoreboard()
