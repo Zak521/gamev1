@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Game Development Report — Rockstar / GTA VI — 2026-09-03</title>
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --fg: #1c1b19;
+    --muted: #6b6862;
+    --rule: #e3e0da;
+    --card: #ffffff;
+    --link: #9a3412;
+    --accent: #7c2d12;
+    --tag-bg: #fef3c7;
+    --tag-fg: #92400e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16151a;
+      --fg: #e9e7e2;
+      --muted: #9c988f;
+      --rule: #302e36;
+      --card: #1e1d23;
+      --link: #f0a37a;
+      --accent: #f4b28c;
+      --tag-bg: #40320f;
+      --tag-fg: #f6d38a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 56px 22px 96px; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 .25rem; letter-spacing: -0.01em; }
+  .subline { color: var(--muted); font-size: .95rem; margin: 0 0 1.75rem; }
+  .overview { font-size: 1.05rem; margin: 0 0 2.5rem; }
+  section {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.75rem;
+    margin-top: 2rem;
+  }
+  section h2 {
+    font-size: 1.28rem;
+    line-height: 1.3;
+    margin: 0 0 1rem;
+    letter-spacing: -0.01em;
+  }
+  .field { margin: 0 0 .9rem; }
+  .field .label {
+    display: block;
+    font-size: .74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--accent);
+    margin-bottom: .15rem;
+  }
+  ul { margin: .3rem 0 0; padding-left: 1.25rem; }
+  li { margin: .3rem 0; }
+  a { color: var(--link); }
+  a:hover { text-decoration: none; }
+  .sources { font-size: .9rem; }
+  .unconfirmed {
+    display: inline-block;
+    background: var(--tag-bg);
+    color: var(--tag-fg);
+    font-size: .7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    padding: .05rem .4rem;
+    border-radius: .25rem;
+    vertical-align: baseline;
+  }
+  .patterns { border-top: 3px double var(--rule); }
+  footer {
+    margin-top: 3rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--rule);
+    color: var(--muted);
+    font-size: .82rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Rockstar Games &amp; <i>Grand Theft Auto VI</i> — Development Report</h1>
+  <p class="subline">Focus: Rockstar Games / GTA VI &nbsp;·&nbsp; Compiled 3 September 2026 &nbsp;·&nbsp; Window: last ~30 days</p>
+
+  <p class="overview">
+    Rockstar's public activity this period is almost entirely <i>Grand Theft Auto VI</i>,
+    still dated <strong>19 November 2026</strong> for PlayStation 5 and Xbox Series X|S.
+    The last month brought the first extended official gameplay — a 26-minute Netflix
+    showcase that peaked near four million concurrent viewers — plus a large unofficial
+    leak from an old build that Rockstar effectively confirmed by issuing takedowns, a
+    batch of on-record developer interviews, and an earnings call describing pre-orders
+    as "unprecedented." The messaging is single-player-first: no microtransactions in
+    the campaign, and nothing at all said about a new online mode.
+  </p>
+
+  <section>
+    <h2>1. "An Extended Look" — first extended official gameplay</h2>
+    <div class="field"><span class="label">Company</span> Rockstar Games (Rockstar North lead), published by Take-Two Interactive</div>
+    <div class="field"><span class="label">Game</span> Grand Theft Auto VI</div>
+    <div class="field"><span class="label">News</span>
+      On 27 August 2026 Rockstar premiered <i>GTA 6: An Extended Look</i>, a ~26-minute
+      presentation built entirely from in-game PS5 footage, first on Netflix and then
+      YouTube. It covered character switching between protagonists Jason Duval and
+      Lucia Caminos, gunplay, police chases, in-world social media, customization, and
+      life-sim systems, and it re-confirmed the 19 November date. Reporting put the
+      combined broadcast at a peak of roughly 3.97 million concurrent viewers, the
+      largest gaming stream of 2026.
+      <div class="sources">Sources:
+        <a href="https://www.pushsquare.com/news/2026/08/watch-gta-6-extended-look-here-17-things-weve-learned" target="_blank" rel="noopener">Push Square</a>,
+        <a href="https://www.gtabase.com/articles/gta-6/gta-6-previews-recap-all-new-gameplay-features-revealed" target="_blank" rel="noopener">GTABase</a>,
+        <a href="https://www.tweaktown.com/news/112923/gta-6-trailer-3-expected-to-drop-soon-after-rockstar-updates-website-three-times-in-four-hours/index.html" target="_blank" rel="noopener">TweakTown</a>.
+      </div>
+    </div>
+    <div class="field"><span class="label">Features being implemented</span>
+      <ul>
+        <li>Reactive NPC AI: crowds overhear conversations, notice eavesdroppers and stares, react to being followed or crowded; some NPCs carry concealed weapons and shoot back during carjackings and robberies</li>
+        <li>~600,000 NPC animations (vs. ~55,000 in GTA V); NPCs individually art-directed with varied ages, body types, tattoos, piercings and surgical modifications</li>
+        <li>Six-star wanted level with more layered police pursuit behaviour</li>
+        <li>Seamless mid-mission switching between Jason and Lucia, played solo or as a cooperating pair</li>
+        <li>Immersion/detail systems: advanced hair physics, sunburn, weapon cleaning and degradation, full mid-air rotation control on dives into water</li>
+        <li>In-world social media feeds that respond to player actions; NPCs that "remember" prior encounters</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Developer interviews and a pre-showcase detail dump</h2>
+    <div class="field"><span class="label">Company</span> Rockstar Games / Rockstar North</div>
+    <div class="field"><span class="label">Game</span> Grand Theft Auto VI</div>
+    <div class="field"><span class="label">News</span>
+      Alongside the showcase, Rockstar let named developers speak on the record for the
+      first time in years — Head of Development and Rockstar North co-studio head Rob
+      Nelson and senior character art director Jamie Lee Lloyd, in a <i>Dazed</i>
+      deep-dive (27 August 2026). Nelson said the internal pressure exceeds anything
+      external and stated the game "will be released on time." Rockstar also published
+      a broad list of world and systems details the same day.
+      <div class="sources">Sources:
+        <a href="https://www.videogameschronicle.com/news/rockstar-reveals-a-swathe-of-new-gta-6-details-ahead-of-the-netflix-extended-look/" target="_blank" rel="noopener">VGC</a>,
+        <a href="https://www.dazeddigital.com/life-culture/article/70859/1/gta-6-grand-theft-auto-vi-rockstar-exclusive-deep-dive-game-unparalleled-world" target="_blank" rel="noopener">Dazed</a>,
+        <a href="https://www.notebookcheck.net/GTA-6-release-date-delay-ruled-out-by-Rockstar-dev-after-polished-Netflix-trailer.1382741.0.html" target="_blank" rel="noopener">Notebookcheck</a>.
+      </div>
+    </div>
+    <div class="field"><span class="label">Features being implemented</span>
+      <ul>
+        <li>Consequence systems Rockstar says "cut much deeper" than its previous titles' honor systems — player actions (e.g. openly carrying a rifle) ripple through the world</li>
+        <li>Character-state simulation: an exercise system with visible muscle gain, food intake affecting weight, and sleep deprivation / long police chases / binges changing appearance</li>
+        <li>New character-creation tools and art pipelines built after the studio "doubled in size" since Red Dead Redemption 2</li>
+        <li>Vehicle handling tuned by a team of professional race-car drivers</li>
+        <li>Authored world content: 50+ real street artists commissioned for murals; a fashion/clothing ecosystem developed with a Miami stylist since 2023; research with ex-criminals, law enforcement and club promoters</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Release date held at 19 November 2026</h2>
+    <div class="field"><span class="label">Company</span> Take-Two Interactive / Rockstar Games</div>
+    <div class="field"><span class="label">Game</span> Grand Theft Auto VI</div>
+    <div class="field"><span class="label">News</span>
+      Take-Two locked the 19 November date in its 7 August investor call, and Rockstar
+      repeated it in a 26 August statement calling the game "nearly there" and again at
+      the end of the Extended Look. Coverage ties the earlier slip from 2025 to a
+      deliberate push to avoid heavy crunch; Nelson said the team is polishing daily
+      and that no single person now knows the whole game.
+      <div class="sources">Sources:
+        <a href="https://gamerant.com/gta-6-release-date-november-2026-rockstar-north-assurances/" target="_blank" rel="noopener">Game Rant</a>,
+        <a href="https://en.wikipedia.org/wiki/Grand_Theft_Auto_VI" target="_blank" rel="noopener">Wikipedia (overview)</a>,
+        <a href="https://www.notebookcheck.net/GTA-6-was-never-going-to-launch-in-2025-analyst-reports.1009165.0.html" target="_blank" rel="noopener">Notebookcheck</a>.
+      </div>
+    </div>
+    <div class="field"><span class="label">Features being implemented</span>
+      <ul>
+        <li>Extended polish/QA phase on the shipped current-gen build</li>
+        <li>Development-process changes aimed at reducing crunch relative to prior Rockstar launches <span class="unconfirmed">[Unconfirmed]</span> — reported by outlets, not detailed by Rockstar</li>
+        <li>Single, fixed launch date with no staggered or early-access rollout</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. The CyberLeek gameplay leak</h2>
+    <div class="field"><span class="label">Company</span> Rockstar Games / Take-Two Interactive</div>
+    <div class="field"><span class="label">Game</span> Grand Theft Auto VI</div>
+    <div class="field"><span class="label">News</span>
+      On 18 August 2026 a group calling itself "CyberLeek" posted two watermarked
+      gameplay clips (including Jason playing basketball) and an image of the full map.
+      Rockstar and Take-Two responded with copyright takedowns, which outlets treated
+      as confirmation the footage was genuine. The build is believed to date to roughly
+      2024 or earlier, so it shows in-progress rather than final systems; it landed nine
+      days before the official showcase.
+      <div class="sources">Sources:
+        <a href="https://www.purexbox.com/news/2026/08/multiple-gta-6-gameplay-videos-appear-to-have-leaked-but-theres-a-catch-or-two" target="_blank" rel="noopener">Pure Xbox</a>,
+        <a href="https://kotaku.com/all-the-new-details-we-spotted-in-the-leaked-gta-6-videos-six-star-wanted-level-gas-meter-improved-combat-boosting-stats-with-basketball-2000725524" target="_blank" rel="noopener">Kotaku</a>,
+        <a href="https://www.gamespot.com/articles/gta-6-leaks-a-timeline-of-the-events-so-far/" target="_blank" rel="noopener">GameSpot</a>.
+      </div>
+    </div>
+    <div class="field"><span class="label">Features being implemented</span>
+      <span class="unconfirmed">[Unconfirmed]</span> — seen in an older build; treat specifics as provisional:
+      <ul>
+        <li>Larger map than GTA V, with a full layout circulated in the leak</li>
+        <li>Six-star wanted system and more advanced police pursuit AI</li>
+        <li>Vehicle fuel/gas meter and persistent vehicle condition/damage</li>
+        <li>Looting of NPCs and containers; a player stamina system</li>
+        <li>Several Red Dead Redemption 2-style survival and contextual-interaction systems carried into a modern setting</li>
+        <li>Minor activity-based stat boosting (e.g. basketball)</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>5. Commercial status and platforms</h2>
+    <div class="field"><span class="label">Company</span> Take-Two Interactive (Rockstar Games)</div>
+    <div class="field"><span class="label">Game</span> Grand Theft Auto VI</div>
+    <div class="field"><span class="label">News</span>
+      On its 7 August 2026 fiscal Q1 2027 call (quarter ended 30 June 2026), Take-Two
+      reported $1.39B net bookings and reaffirmed FY2027 guidance of $8.0–8.2B, leaning
+      explicitly on the November launch. CEO Strauss Zelnick called the ~five-day
+      pre-order window "unprecedented and astonishing" but gave no numbers. Rockstar
+      has confirmed <strong>only</strong> PS5 and Xbox Series X|S for launch — no PS4,
+      Xbox One, or PC — and has made no PC commitment.
+      <div class="sources">Sources:
+        <a href="https://variety.com/2026/gaming/news/gta-6-preorder-sales-take-two-earnings-1236829396/" target="_blank" rel="noopener">Variety</a>,
+        <a href="https://gameluster.com/gta-6-release-date-2026-everything-rockstar-has-co/" target="_blank" rel="noopener">GameLuster</a>,
+        <a href="https://www.gtalab.gg/en/news/gta-6-platforms-list-2026" target="_blank" rel="noopener">GTALAB</a>.
+      </div>
+    </div>
+    <div class="field"><span class="label">Features being implemented</span>
+      <ul>
+        <li>Current-gen-only build (PS5 / Xbox Series X|S), letting the team target one hardware tier at launch</li>
+        <li>Digital pre-order and storefront infrastructure across PlayStation and Xbox</li>
+        <li>Confirmed: the single-player campaign ships with <strong>no</strong> microtransactions</li>
+        <li>PC version: not disclosed (historically 1–2 years after console for GTA)</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>6. RAGE engine — the technical layer</h2>
+    <div class="field"><span class="label">Company</span> Rockstar Games (RAGE Technology Group)</div>
+    <div class="field"><span class="label">Game</span> RAGE engine (the build powering GTA VI)</div>
+    <div class="field"><span class="label">News</span>
+      Rockstar has not given a formal tech talk, but the PS5 footage from the leak and
+      the showcase drove a wave of engine analysis. RAGE is the same lineage that ran
+      GTA IV, GTA V and RDR2, substantially rebuilt for current-gen hardware. The
+      widely reported specifics below come from outlet and enthusiast analysis of that
+      footage rather than Rockstar documentation.
+      <div class="sources">Sources:
+        <a href="https://gamingbolt.com/gta-6-graphics-analysis-the-next-step-for-rockstars-rage-engine" target="_blank" rel="noopener">GamingBolt</a>,
+        <a href="https://www.rockstarmag.fr/gta-6-improvements-brought-by-the-new-version-of-the-rage-engine-a-rockstar-mag-exclusive/" target="_blank" rel="noopener">Rockstar Mag</a>,
+        <a href="https://exploregta6.com/news/gta-6-rage-engine-graphics-technical-breakdown" target="_blank" rel="noopener">ExploreGTA6</a>.
+      </div>
+    </div>
+    <div class="field"><span class="label">Features being implemented</span>
+      <span class="unconfirmed">[Unconfirmed]</span> — analysis-derived, not confirmed by Rockstar:
+      <ul>
+        <li>Real-time simulated ocean: waves that form, break and interact with shorelines; boats deforming the surface; depth- and type-dependent transparency and underwater light refraction</li>
+        <li>Dynamic weather that builds over time (hurricanes, city-wide lightning, puddle accumulation) and feeds into driving physics, NPC behaviour and animal activity, with no loading transitions</li>
+        <li>Ray-traced lighting and reflections</li>
+        <li>Large-scale NPC AI populating a map reported at roughly 2.5× the size of GTA V's</li>
+        <li>Substantially upgraded physics vs. RDR2</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>7. The online mode is deliberately absent from the conversation</h2>
+    <div class="field"><span class="label">Company</span> Rockstar Games / Take-Two Interactive</div>
+    <div class="field"><span class="label">Game</span> Grand Theft Auto Online (current) and an unannounced GTA VI online mode</div>
+    <div class="field"><span class="label">News</span>
+      Through August 2026, Take-Two has framed GTA VI strictly as a single-player
+      experience and says it will not discuss a new online mode before launch;
+      reporting from Jason Schreier says there are no plans to talk about it soon.
+      Zelnick separately confirmed the existing <i>GTA Online</i> (on GTA V) keeps
+      running and receiving support after VI ships.
+      <div class="sources">Sources:
+        <a href="https://www.pcgamesn.com/grand-theft-auto-vi/gta-online-supported-new-version" target="_blank" rel="noopener">PCGamesN</a>,
+        <a href="https://mp1st.com/news/rockstar-wont-talk-about-gta-6-online-game-marketed-as-single-player-experience" target="_blank" rel="noopener">MP1st</a>,
+        <a href="https://massivelyop.com/2026/06/24/take-two-all-but-confirms-that-online-multiplayer-for-grand-theft-auto-6-isnt-coming-at-launch/" target="_blank" rel="noopener">Massively OP</a>.
+      </div>
+    </div>
+    <div class="field"><span class="label">Features being implemented</span>
+      <ul>
+        <li>Continued live-service support for GTA V's <i>GTA Online</i> in parallel with the new game</li>
+        <li>A future standalone online mode for GTA VI ("GTA Online 2") — existence, timing and feature set all <span class="unconfirmed">[Unconfirmed]</span> and unannounced</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="patterns">
+    <h2>Patterns</h2>
+    <ul>
+      <li><strong>Single-player first, live-service deferred.</strong> The campaign ships with no microtransactions, and Rockstar refuses to discuss the new online mode — the recurring-revenue engine is explicitly a post-launch problem.</li>
+      <li><strong>"Simulation depth" is the headline pitch.</strong> Reactive and remembering NPCs, ~600k animations, character-state systems (fitness, diet, sleep), and RDR2-style survival mechanics are the selling points, not raw map scale alone.</li>
+      <li><strong>Tight information control, briefly broken.</strong> One official showcase, named-developer interviews on Rockstar's schedule, and aggressive takedowns — a cadence the CyberLeek leak disrupted for about a week.</li>
+      <li><strong>Current-gen-only scope.</strong> Targeting just PS5 and Xbox Series X|S (no last-gen, no day-one PC) concentrates engineering effort and mirrors past staggered PC ports.</li>
+      <li><strong>Process as a talking point.</strong> Rockstar is now willing to discuss studio growth since RDR2 and to imply a less punishing development schedule — a shift from its historically silent posture.</li>
+    </ul>
+  </section>
+
+  <footer>
+    Compiled 3 September 2026. Items reflect reporting from roughly the preceding 30 days.
+    Tags marked <span class="unconfirmed">[Unconfirmed]</span> are rumor, leak, or third-party
+    analysis and are not confirmed by Rockstar Games or Take-Two.
+  </footer>
+
+</div>
+</body>
+</html>
