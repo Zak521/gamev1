@@ -11,6 +11,14 @@ import {
   state,
 } from './core.ts'
 import type { CrowdMember, TeamId } from './core.ts'
+import {
+  UNIFORM_KITS,
+  addKitHelmetStripe,
+  addKitLegStripe,
+  addKitSleeveHoops,
+  addKitSock,
+  addKitYoke,
+} from './kits.ts'
 
 // ---------------------------------------------------------------------------
 // Renderer / scene / camera
@@ -832,14 +840,25 @@ export function createSky() {
 }
 
 // A single standing sideline figure: a benched player (with pads + helmet) or a
-// head coach (bare head, ball cap, khakis). Both wear their team's colors.
-function createSidelineFigure(x: number, z: number, jersey: number, trim: number, facing: number, isCoach: boolean, parent: THREE.Object3D = world) {
+// head coach (bare head, ball cap, khakis). Both wear their team's colors, and
+// benched players get the same detailed kit as the on-field ones (coloured
+// helmet with the team decal and crown stripe, coloured facemask, shoulder
+// yoke, sleeve hoops, striped pants and socks).
+function createSidelineFigure(x: number, z: number, jersey: number, trim: number, facing: number, isCoach: boolean, teamId: TeamId, parent: THREE.Object3D = world) {
   const group = new THREE.Group()
+  const kit = isCoach ? undefined : UNIFORM_KITS[teamId]
   const jerseyMat = new THREE.MeshStandardMaterial({ color: jersey, roughness: 0.8 })
   const trimMat = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.7 })
   const skinMat = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
-  const pantsMat = new THREE.MeshStandardMaterial({ color: isCoach ? 0xcbb58a : 0xe5e7eb, roughness: 0.8 })
+  const pantsMat = new THREE.MeshStandardMaterial({
+    color: isCoach ? 0xcbb58a : kit ? kit.pants : 0xe5e7eb,
+    roughness: 0.8,
+  })
   const shoeMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 })
+  const helmetMat = kit
+    ? new THREE.MeshStandardMaterial({ color: kit.helmet, roughness: 0.35, metalness: kit.helmetMetal })
+    : trimMat
+  const facemaskMat = kit ? new THREE.MeshStandardMaterial({ color: kit.facemask, roughness: 0.6 }) : shoeMat
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.82, isCoach ? 1.15 : 1.45, 0.5), jerseyMat)
   torso.position.y = isCoach ? 1.12 : 1.22
   group.add(torso)
@@ -851,11 +870,14 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     pads.scale.set(1, 0.34, 0.6)
     pads.position.y = 1.95
     group.add(pads)
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), trimMat)
+    if (kit) addKitYoke(group, kit, { width: 0.86, depth: 0.52, bandY: 1.96, lineY: 1.88, collarR: 0.16, collarY: 1.99 })
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), helmetMat)
     helmet.scale.set(1.04, 0.92, 1.04)
     helmet.position.y = 2.4
     group.add(helmet)
-    const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.46, 8), shoeMat)
+    group.add(helmetDecal(teamId, 0.4, 2.4))
+    if (kit) addKitHelmetStripe(group, kit, 0.42, 2.4)
+    const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.46, 8), facemaskMat)
     facemask.rotation.z = Math.PI / 2
     facemask.position.set(0, 2.28, 0.36)
     group.add(facemask)
@@ -880,6 +902,7 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     upper.rotation.z = -armSide * 0.2
     if (raised) upper.rotation.x = -0.5
     group.add(upper)
+    if (kit) addKitSleeveHoops(upper, kit, -0.2, 0.115)
     const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.085, 0.58, 8), skinMat)
     forearm.position.set(armSide * 0.66, shoulderY - 0.82, raised ? 0.5 : 0.04)
     forearm.rotation.z = -armSide * 0.12
@@ -899,6 +922,10 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, isCoach ? 1.15 : 0.95, 7), pantsMat)
     leg.position.set(legX, isCoach ? 0.58 : 0.42, 0)
     group.add(leg)
+    if (kit) {
+      addKitLegStripe(group, kit, legX + (legX < 0 ? -0.12 : 0.12), 0.46, 0.8)
+      addKitSock(group, kit, legX, 0.15)
+    }
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.42), shoeMat)
     shoe.position.set(legX, 0.06, 0.12)
     group.add(shoe)
@@ -913,20 +940,21 @@ const KHAKI = 0xcbb58a
 
 // One sideline's worth of benched players plus a head coach and two
 // assistants, all in the given team's colors.
-function buildSidelineBench(sideX: number, facing: number, jersey: number, trim: number, coachTop: number, parent: THREE.Object3D) {
+function buildSidelineBench(sideX: number, facing: number, teamId: TeamId, trim: number, coachTop: number, parent: THREE.Object3D) {
   const inward = sideX < 0 ? 1 : -1
+  const jersey = TEAMS[teamId].primary
   // A deep bench: three staggered rows of players milling in the team area,
   // spanning most of the sideline between the 25s.
   for (let i = 0; i < 26; i += 1) {
     const z = -12 - i * 2.35
     const rowOffset = (i % 3) * 1.05
     const x = sideX + inward * (rowOffset + randomBetween(-0.3, 0.3))
-    createSidelineFigure(x, z, jersey, trim, facing, false, parent)
+    createSidelineFigure(x, z, jersey, trim, facing, false, teamId, parent)
   }
   // Head coach out front near midfield, plus two assistants down the line.
-  createSidelineFigure(sideX + inward * 2.1, -42, coachTop, KHAKI, facing, true, parent)
-  createSidelineFigure(sideX + inward * 1.6, -24, coachTop, KHAKI, facing, true, parent)
-  createSidelineFigure(sideX + inward * 1.6, -66, coachTop, KHAKI, facing, true, parent)
+  createSidelineFigure(sideX + inward * 2.1, -42, coachTop, KHAKI, facing, true, teamId, parent)
+  createSidelineFigure(sideX + inward * 1.6, -24, coachTop, KHAKI, facing, true, teamId, parent)
+  createSidelineFigure(sideX + inward * 1.6, -66, coachTop, KHAKI, facing, true, teamId, parent)
 }
 
 // The opponent's bench lives in its own group so a new game can rebuild it in
@@ -936,7 +964,7 @@ export function buildOpponentSideline() {
   if (opponentSidelineGroup) world.remove(opponentSidelineGroup)
   const group = new THREE.Group()
   const team = TEAMS[state.opponentTeam]
-  buildSidelineBench(29, -Math.PI / 2, team.primary, 0x111827, team.accent, group)
+  buildSidelineBench(29, -Math.PI / 2, state.opponentTeam, 0x111827, team.accent, group)
   world.add(group)
   opponentSidelineGroup = group
 }
@@ -944,7 +972,7 @@ export function buildOpponentSideline() {
 // Benches and coaching staff on each sideline: the Vikings (home, purple) on
 // the near side, and the chosen NFC North opponent across the way.
 export function createSidelines() {
-  buildSidelineBench(-29, Math.PI / 2, TEAMS.vikings.primary, 0x0f172a, TEAMS.vikings.accent, world)
+  buildSidelineBench(-29, Math.PI / 2, 'vikings', 0x0f172a, TEAMS.vikings.accent, world)
   buildOpponentSideline()
 }
 
