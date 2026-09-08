@@ -14,9 +14,12 @@ export const balls = {
 // Per-team uniform kits. A team listed here gets a coloured helmet, facemask
 // and pants plus jersey striping (shoulder yoke, sleeve hoops, collar, pant
 // stripe); every other team keeps the plain dark helmet and pants.
-//   band  - shoulder yoke, sleeve hoops and collar
-//   line  - the thin contrast stripe that borders the band
-//   pants stripe - a wide stripe down the leg with a `line`-coloured centre
+//   band         - shoulder yoke, sleeve hoops and collar
+//   line         - the thin contrast stripe that borders the band
+//   pantStripe   - [wide stripe, thin centre] down the outside of the leg;
+//                  the centre is skipped when the two colours match
+//   helmetStripe - optional [flank, centre] mohawk stripe over the crown
+//   socks        - optional [sock, stripe] colours over the lower leg
 type UniformKit = {
   helmet: number
   helmetMetal: number
@@ -25,7 +28,9 @@ type UniformKit = {
   numberColor: string
   band: number
   line: number
-  pantStripe: number
+  pantStripe: [number, number]
+  helmetStripe?: [number, number]
+  socks?: [number, number]
 }
 
 const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
@@ -38,7 +43,7 @@ const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     numberColor: '#ffd23f',
     band: TEAMS.packers.accent,
     line: 0xf4f4f0,
-    pantStripe: 0x203731,
+    pantStripe: [0x203731, 0xf4f4f0],
   },
   // Detroit: silver helmet, Honolulu-blue facemask, silver pants, white numbers,
   // silver stripes with a blue border and a blue pant stripe.
@@ -50,7 +55,22 @@ const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     numberColor: '#ffffff',
     band: 0xd4d8dc,
     line: TEAMS.lions.primary,
-    pantStripe: TEAMS.lions.primary,
+    pantStripe: [TEAMS.lions.primary, TEAMS.lions.primary],
+  },
+  // Chicago: matte navy helmet with the orange-white-orange crown stripe and the
+  // white "C", grey facemask, white pants with a navy-orange stripe, burnt-orange
+  // numbers, orange-and-white jersey stripes, and navy socks with an orange band.
+  bears: {
+    helmet: 0x17315c,
+    helmetMetal: 0.12,
+    facemask: 0x3a3f47,
+    pants: 0xe9e9e6,
+    numberColor: '#e8641f',
+    band: TEAMS.bears.accent,
+    line: 0xf4f4f0,
+    pantStripe: [0x17315c, TEAMS.bears.accent],
+    helmetStripe: [TEAMS.bears.accent, 0xf4f4f0],
+    socks: [0x17315c, TEAMS.bears.accent],
   },
 }
 
@@ -105,6 +125,25 @@ export function createDefender(x: number, z: number, color: number, number: numb
   helmet.position.y = 2.45
   group.add(helmet)
   group.add(helmetDecal(teamId, 0.5, 2.45))
+  if (kit?.helmetStripe) {
+    // A front-to-back mohawk stripe over the crown: a wide flank colour with a
+    // thinner centre laid on top, so it reads flank-centre-flank (e.g. Chicago's
+    // orange-white-orange). Half-torus arc, squashed in Y to hug the helmet.
+    const [flankColor, centreColor] = kit.helmetStripe
+    for (const s of [
+      { tube: 0.045, color: flankColor },
+      { tube: 0.018, color: centreColor },
+    ]) {
+      const arc = new THREE.Mesh(
+        new THREE.TorusGeometry(0.5, s.tube, 8, 24, Math.PI),
+        new THREE.MeshStandardMaterial({ color: s.color, roughness: 0.5 }),
+      )
+      arc.rotation.y = Math.PI / 2
+      arc.scale.y = 0.9
+      arc.position.set(0, 2.45, 0)
+      group.add(arc)
+    }
+  }
   const facemaskBar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.72, 8), facemaskMaterial)
   facemaskBar.rotation.z = Math.PI / 2
   facemaskBar.position.set(0, 2.3, 0.48)
@@ -118,14 +157,15 @@ export function createDefender(x: number, z: number, color: number, number: numb
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 1.1, 8), pantsMaterial)
     leg.position.set(legX, 0.42, 0)
     group.add(leg)
-    if (kit && lineMaterial) {
+    if (kit) {
       // A wide stripe with a thin contrast centre, down the outside of each leg.
+      const [wideColor, centreColor] = kit.pantStripe
       const stripeX = legX + (legX < 0 ? -0.16 : 0.16)
-      const wideStripe = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.95, 0.05), new THREE.MeshStandardMaterial({ color: kit.pantStripe, roughness: 0.5 }))
+      const wideStripe = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.95, 0.05), new THREE.MeshStandardMaterial({ color: wideColor, roughness: 0.5 }))
       wideStripe.position.set(stripeX, 0.5, 0.0)
       group.add(wideStripe)
-      if (kit.line !== kit.pantStripe) {
-        const centreStripe = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.95, 0.05), lineMaterial)
+      if (wideColor !== centreColor) {
+        const centreStripe = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.95, 0.05), new THREE.MeshStandardMaterial({ color: centreColor, roughness: 0.5 }))
         centreStripe.position.set(stripeX, 0.5, 0.03)
         group.add(centreStripe)
       }
@@ -137,6 +177,16 @@ export function createDefender(x: number, z: number, color: number, number: numb
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.62), dark)
     shoe.position.set(legX, 0.06, 0.16)
     group.add(shoe)
+    if (kit?.socks) {
+      // A coloured sock pulled over the lower leg, with a stripe near the top.
+      const [sockColor, sockStripe] = kit.socks
+      const sock = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.175, 0.4, 10), new THREE.MeshStandardMaterial({ color: sockColor, roughness: 0.7 }))
+      sock.position.set(legX, 0.22, 0)
+      group.add(sock)
+      const sockBand = new THREE.Mesh(new THREE.CylinderGeometry(0.163, 0.178, 0.06, 10), new THREE.MeshStandardMaterial({ color: sockStripe, roughness: 0.6 }))
+      sockBand.position.set(legX, 0.36, 0)
+      group.add(sockBand)
+    }
   }
   const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.21, 0.26, 8), skinMaterial)

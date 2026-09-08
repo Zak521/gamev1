@@ -235,23 +235,6 @@ function paintHorns(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: nu
   }
 }
 
-// A four-toe bear paw print on a 256px canvas, centred on (128,128).
-function drawPaw(ctx: CanvasRenderingContext2D, fill: string, stroke: string) {
-  ctx.fillStyle = fill
-  ctx.strokeStyle = stroke
-  ctx.lineWidth = 7
-  ctx.beginPath()
-  ctx.ellipse(128, 156, 46, 42, 0, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.stroke()
-  for (const [x, y, rx, ry] of [[74, 100, 19, 25], [110, 74, 19, 27], [146, 74, 19, 27], [182, 100, 19, 25]]) {
-    ctx.beginPath()
-    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.stroke()
-  }
-}
-
 let hornsDecalTextureCache: THREE.CanvasTexture | null = null
 function hornsDecalTexture() {
   if (hornsDecalTextureCache) return hornsDecalTextureCache
@@ -264,15 +247,24 @@ function hornsDecalTexture() {
   return hornsDecalTextureCache
 }
 
-let pawDecalTextureCache: THREE.CanvasTexture | null = null
-function pawDecalTexture() {
-  if (pawDecalTextureCache) return pawDecalTextureCache
+// Chicago Bears helmet mark: the wishbone "C" — white, outlined in burnt orange.
+let bearsCDecalTextureCache: THREE.CanvasTexture | null = null
+function bearsCDecalTexture() {
+  if (bearsCDecalTextureCache) return bearsCDecalTextureCache
   const c = document.createElement('canvas')
   c.width = c.height = 256
   const ctx = c.getContext('2d')!
-  drawPaw(ctx, '#f8fafc', '#1f2937')
-  pawDecalTextureCache = new THREE.CanvasTexture(c)
-  return pawDecalTextureCache
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 30
+  ctx.strokeStyle = '#c83803'
+  ctx.strokeText('C', 128, 146)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillText('C', 128, 146)
+  bearsCDecalTextureCache = new THREE.CanvasTexture(c)
+  return bearsCDecalTextureCache
 }
 
 // Detroit Lions helmet mark: three diagonal claw-slash strokes.
@@ -329,7 +321,7 @@ function decalTextureForTeam(teamId: TeamId) {
     case 'packers':
       return packersGDecalTexture()
     case 'bears':
-      return pawDecalTexture()
+      return bearsCDecalTexture()
   }
 }
 
