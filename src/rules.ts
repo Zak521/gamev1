@@ -60,7 +60,7 @@ import {
   yardsLabelEl,
 } from './core.ts'
 import type { DefenseCall, Defender, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
-import { applyOpponentTeam, camera, celebrateTouchdown, playerView, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
+import { applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
   buildDefense,
@@ -913,6 +913,7 @@ export function sack() {
 
 export function throwAway() {
   if (!state.running || state.throwing || state.afterCatch || isRunId(state.selectedPlay) || state.possession !== 'offense') return
+  playThrow()
   state.running = false
   state.lastPlayStoppedClock = true
   state.down += 1

@@ -113,6 +113,65 @@ export function playFootstep() {
   oscillator.stop(now + 0.14)
 }
 
+// A short airy whoosh as the ball leaves your hand — filtered noise sweeping
+// from a hiss down to a low rush, roughly the length of the release.
+export function playThrow() {
+  if (!audioContext || audioContext.state !== 'running') return
+  const now = audioContext.currentTime
+  const dur = 0.32
+  const noise = audioContext.createBufferSource()
+  const buffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * dur), audioContext.sampleRate)
+  const data = buffer.getChannelData(0)
+  for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1
+  noise.buffer = buffer
+  const band = audioContext.createBiquadFilter()
+  band.type = 'bandpass'
+  band.Q.value = 1.4
+  band.frequency.setValueAtTime(1900, now)
+  band.frequency.exponentialRampToValueAtTime(340, now + dur)
+  const whooshGain = audioContext.createGain()
+  whooshGain.gain.setValueAtTime(0.0001, now)
+  whooshGain.gain.exponentialRampToValueAtTime(0.16, now + 0.04)
+  whooshGain.gain.exponentialRampToValueAtTime(0.0001, now + dur)
+  noise.connect(band).connect(whooshGain).connect(audioContext.destination)
+  noise.start(now)
+  noise.stop(now + dur)
+}
+
+// The catch: a low leather thump of the ball into the hands plus a brief slap
+// of high noise for the smack against the pads.
+export function playCatch() {
+  if (!audioContext || audioContext.state !== 'running') return
+  const now = audioContext.currentTime
+  const thump = audioContext.createOscillator()
+  const thumpGain = audioContext.createGain()
+  thump.type = 'sine'
+  thump.frequency.setValueAtTime(185, now)
+  thump.frequency.exponentialRampToValueAtTime(72, now + 0.14)
+  thumpGain.gain.setValueAtTime(0.0001, now)
+  thumpGain.gain.exponentialRampToValueAtTime(0.22, now + 0.012)
+  thumpGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2)
+  thump.connect(thumpGain).connect(audioContext.destination)
+  thump.start(now)
+  thump.stop(now + 0.22)
+
+  const slapDur = 0.12
+  const slap = audioContext.createBufferSource()
+  const slapBuffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * slapDur), audioContext.sampleRate)
+  const slapData = slapBuffer.getChannelData(0)
+  for (let i = 0; i < slapData.length; i += 1) slapData[i] = (Math.random() * 2 - 1) * (1 - i / slapData.length)
+  slap.buffer = slapBuffer
+  const highpass = audioContext.createBiquadFilter()
+  highpass.type = 'highpass'
+  highpass.frequency.value = 1200
+  const slapGain = audioContext.createGain()
+  slapGain.gain.setValueAtTime(0.14, now)
+  slapGain.gain.exponentialRampToValueAtTime(0.0001, now + slapDur)
+  slap.connect(highpass).connect(slapGain).connect(audioContext.destination)
+  slap.start(now)
+  slap.stop(now + slapDur)
+}
+
 function playCrowdCheer() {
   if (!audioContext || audioContext.state !== 'running') return
   const now = audioContext.currentTime

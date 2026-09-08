@@ -18,7 +18,7 @@ import {
   teammates,
 } from './core.ts'
 import type { Defender, Receiver } from './core.ts'
-import { aimCamera, camera, playFootstep, playerView, world } from './world.ts'
+import { aimCamera, camera, playCatch, playFootstep, playThrow, playerView, world } from './world.ts'
 import { balls } from './entities.ts'
 import {
   finishDefensivePlay,
@@ -59,6 +59,7 @@ export function throwTo(receiver: Receiver) {
   balls.thrown.visible = true
   passStart.set(camera.position.x, camera.position.y - 0.55, camera.position.z - 1.4)
   balls.thrown.position.copy(passStart)
+  playThrow()
   statusText.textContent = state.passContested ? 'Pass away — into tight coverage!' : 'Pass away!'
 }
 
@@ -117,6 +118,7 @@ function updatePass(delta: number) {
   }
   // Completed pass: you take over as the ball carrier at the catch point and run
   // it yourself until the defense tackles you (or you reach the end zone).
+  playCatch()
   state.playerX = receiver.mesh.position.x
   state.cameraZ = receiver.mesh.position.z + 1.5
   state.ballOn = ballOnFromZ(state.cameraZ)
