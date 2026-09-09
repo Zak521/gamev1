@@ -44,6 +44,7 @@ export const crowdMembers: CrowdMember[] = []
 export const clouds: THREE.Group[] = []
 export const crowdBodyMeshes: THREE.InstancedMesh[] = []
 export const crowdShoulderMeshes: THREE.InstancedMesh[] = []
+let crowdGroup: THREE.Group | null = null
 
 // The instanced crowd's head layer, wired up inside createStadium().
 export const crowdHead = { mesh: null as THREE.InstancedMesh | null }
@@ -633,9 +634,27 @@ function createGoalPost(z: number, facing: number) {
   world.add(post)
 }
 
-export function createStadium() {
-  const standColors = [0x17233b, 0x253654, 0x334b70]
-  const fanColors = [0xf8fafc, 0xfbbf24, 0x38bdf8, 0xf43f5e, 0x22c55e, 0xa78bfa, 0xfb923c]
+// The Vikings are the home team, so their purple jerseys fill the bowl. A
+// small, random share of every section wears the selected opponent's color,
+// making the away support visible without taking over the stadium.
+export function rebuildCrowd() {
+  if (crowdGroup) {
+    world.remove(crowdGroup)
+    crowdGroup.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return
+      object.geometry.dispose()
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      materials.forEach((material) => material.dispose())
+    })
+  }
+  crowdGroup = new THREE.Group()
+  world.add(crowdGroup)
+  crowdMembers.length = 0
+  crowdBodyMeshes.length = 0
+  crowdShoulderMeshes.length = 0
+  crowdHead.mesh = null
+
+  const fanColors = [TEAMS.vikings.primary, TEAMS[state.opponentTeam].primary]
   const fanHeadGeometry = new THREE.SphereGeometry(0.15, 8, 6)
   const fanBodyGeometry = new THREE.CylinderGeometry(0.19, 0.26, 0.52, 7)
   const fanShoulderGeometry = new THREE.BoxGeometry(0.52, 0.24, 0.32)
@@ -646,25 +665,72 @@ export function createStadium() {
   const fanTransform = new THREE.Object3D()
 
   const addFan = (x: number, y: number, z: number, colorIndex: number, facing = 0) => {
-    const normalizedColorIndex = colorIndex % fanColors.length
-    const bodyIndex = fanBodyMatrices[normalizedColorIndex].length
+    const bodyIndex = fanBodyMatrices[colorIndex].length
     const headIndex = fanHeadMatrices.length
     const scale = randomBetween(0.82, 1.12)
     fanTransform.rotation.set(0, facing, 0)
     fanTransform.scale.setScalar(scale)
     fanTransform.position.set(x, y + 0.28 * scale, z)
     fanTransform.updateMatrix()
-    fanBodyMatrices[normalizedColorIndex].push(fanTransform.matrix.clone())
+    fanBodyMatrices[colorIndex].push(fanTransform.matrix.clone())
     fanTransform.position.y = y + 0.56 * scale
     fanTransform.updateMatrix()
-    fanShoulderMatrices[normalizedColorIndex].push(fanTransform.matrix.clone())
+    fanShoulderMatrices[colorIndex].push(fanTransform.matrix.clone())
     fanTransform.position.y = y + 0.72 * scale
     fanTransform.updateMatrix()
     fanHeadMatrices.push(fanTransform.matrix.clone())
     fanTransform.scale.setScalar(1)
-    crowdMembers.push({ x, y, z, facing, phase: randomBetween(0, Math.PI * 2), scale, colorIndex: normalizedColorIndex, bodyIndex, headIndex })
+    crowdMembers.push({ x, y, z, facing, phase: randomBetween(0, Math.PI * 2), scale, colorIndex, bodyIndex, headIndex })
   }
 
+  // About 14% of the bowl is away support. Independent picks avoid a visible
+  // repeating pattern while keeping Vikings purple dominant overall.
+  const crowdColor = () => Math.random() < 0.14 ? 1 : 0
+
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < 19; row += 1) {
+      const x = side * (32 + row * 1.16)
+      const y = 0.5 + row * 0.75
+      for (let seat = 0; seat < 58; seat += 1) {
+        addFan(x - side * 1.2, y + 0.52, -105 + seat * 2.08 + (row % 2) * 0.55, crowdColor(), -side * Math.PI / 2)
+      }
+    }
+  }
+  for (const end of [1, -1]) {
+    for (let row = 0; row < 15; row += 1) {
+      const z = end === 1 ? 21 + row * 1.2 : -105 - row * 1.2
+      const y = 0.5 + row * 0.75
+      for (let seat = 0; seat < 46; seat += 1) {
+        addFan(-45 + seat * 2.0, y + 0.52, z - end * 1.2, crowdColor(), end === 1 ? Math.PI : 0)
+      }
+    }
+  }
+
+  // Instancing keeps the packed stadium inexpensive to animate every frame.
+  const buildFanLayer = (buckets: THREE.Matrix4[][], geometry: THREE.BufferGeometry, target: THREE.InstancedMesh[], skin = false) => {
+    for (const [colorIndex, matrices] of buckets.entries()) {
+      const mesh = new THREE.InstancedMesh(
+        geometry,
+        skin ? skinMaterial : new THREE.MeshStandardMaterial({ color: fanColors[colorIndex], roughness: 0.8 }),
+        matrices.length,
+      )
+      matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix))
+      mesh.instanceMatrix.needsUpdate = true
+      crowdGroup!.add(mesh)
+      target[colorIndex] = mesh
+    }
+  }
+  buildFanLayer(fanBodyMatrices, fanBodyGeometry, crowdBodyMeshes)
+  buildFanLayer(fanShoulderMatrices, fanShoulderGeometry, crowdShoulderMeshes)
+  const heads = new THREE.InstancedMesh(fanHeadGeometry, skinMaterial, fanHeadMatrices.length)
+  fanHeadMatrices.forEach((matrix, index) => heads.setMatrixAt(index, matrix))
+  heads.instanceMatrix.needsUpdate = true
+  crowdGroup.add(heads)
+  crowdHead.mesh = heads
+}
+
+export function createStadium() {
+  const standColors = [0x17233b, 0x253654, 0x334b70]
   // A deep bowl of stands wraps the field; the front rows sit back far enough to
   // leave a sideline apron for the benches.
   for (const side of [-1, 1]) {
@@ -677,9 +743,6 @@ export function createStadium() {
       )
       seats.position.set(x, y, -47)
       world.add(seats)
-      for (let seat = 0; seat < 58; seat += 1) {
-        addFan(x - side * 1.2, y + 0.52, -105 + seat * 2.08 + (row % 2) * 0.55, seat + row * 3, -side * Math.PI / 2)
-      }
     }
   }
 
@@ -693,33 +756,9 @@ export function createStadium() {
       )
       seats.position.set(0, y, z)
       world.add(seats)
-      for (let seat = 0; seat < 46; seat += 1) {
-        addFan(-45 + seat * 2.0, y + 0.52, z - end * 1.2, seat * 2 + row, end === 1 ? Math.PI : 0)
-      }
     }
   }
-
-  // Use instancing so the packed crowd (several thousand fans) stays cheap.
-  const buildFanLayer = (buckets: THREE.Matrix4[][], geometry: THREE.BufferGeometry, target: THREE.InstancedMesh[], skin = false) => {
-    for (const [colorIndex, matrices] of buckets.entries()) {
-      const mesh = new THREE.InstancedMesh(
-        geometry,
-        skin ? skinMaterial : new THREE.MeshStandardMaterial({ color: fanColors[colorIndex], roughness: 0.8 }),
-        matrices.length,
-      )
-      matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix))
-      mesh.instanceMatrix.needsUpdate = true
-      world.add(mesh)
-      target[colorIndex] = mesh
-    }
-  }
-  buildFanLayer(fanBodyMatrices, fanBodyGeometry, crowdBodyMeshes)
-  buildFanLayer(fanShoulderMatrices, fanShoulderGeometry, crowdShoulderMeshes)
-  const heads = new THREE.InstancedMesh(fanHeadGeometry, skinMaterial, fanHeadMatrices.length)
-  fanHeadMatrices.forEach((matrix, index) => heads.setMatrixAt(index, matrix))
-  heads.instanceMatrix.needsUpdate = true
-  world.add(heads)
-  crowdHead.mesh = heads
+  rebuildCrowd()
 
   const outerWallMaterial = new THREE.MeshStandardMaterial({ color: 0x111c30, roughness: 0.88 })
   for (const x of [-58, 58]) {

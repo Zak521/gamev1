@@ -60,7 +60,7 @@ import {
   yardsLabelEl,
 } from './core.ts'
 import type { DefenseCall, Defender, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
-import { applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
+import { applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, rebuildCrowd, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
   buildDefense,
@@ -306,6 +306,7 @@ function renderTeamOptions() {
 function chooseOpponent(id: TeamId) {
   state.opponentTeam = id
   applyOpponentTeam()
+  rebuildCrowd()
   teamSelect.classList.add('is-hidden')
   startGame()
 }
