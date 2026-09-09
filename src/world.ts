@@ -7,6 +7,7 @@ import {
   formatClock,
   keys,
   ordinal,
+  pickSkinTone,
   randomBetween,
   state,
 } from './core.ts'
@@ -416,6 +417,90 @@ export function helmetDecal(teamId: TeamId, radius: number, y: number) {
   return group
 }
 
+// ---------------------------------------------------------------------------
+// Shared player parts — a soft contact shadow and a face inside the helmet.
+// Both entities.ts (on-field players) and the sideline figures below use these,
+// so they live here in world.ts (entities.ts depends on world.ts, not the
+// reverse).
+// ---------------------------------------------------------------------------
+
+// A faint dark ellipse laid flat just above the turf, so a player reads as
+// standing *on* the field rather than hovering over it. Cheap: one unlit,
+// depth-write-free disc per player.
+const shadowTextureCache: THREE.CanvasTexture[] = []
+function shadowTexture() {
+  if (shadowTextureCache[0]) return shadowTextureCache[0]
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const ctx = c.getContext('2d')!
+  const gradient = ctx.createRadialGradient(32, 32, 2, 32, 32, 30)
+  gradient.addColorStop(0, 'rgba(0,0,0,0.5)')
+  gradient.addColorStop(0.6, 'rgba(0,0,0,0.28)')
+  gradient.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, 64, 64)
+  shadowTextureCache[0] = new THREE.CanvasTexture(c)
+  return shadowTextureCache[0]
+}
+
+export function groundShadow(radius: number) {
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(radius * 2, radius * 2),
+    new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.85,
+    }),
+  )
+  shadow.rotation.x = -Math.PI / 2
+  shadow.scale.y = 0.62 // squash to an ellipse — sun is high and to the side
+  shadow.position.y = 0.015
+  shadow.renderOrder = 0
+  return shadow
+}
+
+// The face seen through the facemask: a rounded skin head filling the helmet,
+// a brow shadow, two eyes, and a jaw that peeks below the helmet shell. Sized
+// to the helmet radius and dropped in at helmet height, facing +Z (downfield,
+// which is where every model is built to look).
+export function addFace(group: THREE.Group, opts: { skin: THREE.Material; radius: number; y: number }) {
+  const { skin, radius, y } = opts
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2b1d12, roughness: 0.9 })
+  const white = new THREE.MeshStandardMaterial({ color: 0xf4f1ec, roughness: 0.6 })
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.74, 12, 10), skin)
+  head.scale.set(0.94, 1.06, 0.9)
+  head.position.set(0, y - radius * 0.06, radius * 0.06)
+  group.add(head)
+
+  // Jaw / chin, tucked just under the front lip of the helmet shell rather than
+  // jutting out past it.
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.34, 10, 8), skin)
+  jaw.scale.set(0.95, 0.7, 0.85)
+  jaw.position.set(0, y - radius * 0.62, radius * 0.42)
+  group.add(jaw)
+
+  // Brow shadow band across the top of the mask opening.
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(radius * 0.9, radius * 0.12, radius * 0.1), dark)
+  brow.position.set(0, y + radius * 0.12, radius * 0.66)
+  group.add(brow)
+
+  for (const side of [-1, 1]) {
+    const eyeWhite = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.13, 8, 6), white)
+    eyeWhite.scale.set(1.2, 0.8, 0.5)
+    eyeWhite.position.set(side * radius * 0.3, y - radius * 0.04, radius * 0.68)
+    group.add(eyeWhite)
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.06, 6, 6), dark)
+    pupil.position.set(side * radius * 0.3, y - radius * 0.04, radius * 0.74)
+    group.add(pupil)
+    // A thin smudge of eye black on the cheekbone.
+    const eyeBlack = new THREE.Mesh(new THREE.BoxGeometry(radius * 0.24, radius * 0.06, radius * 0.05), dark)
+    eyeBlack.position.set(side * radius * 0.3, y - radius * 0.2, radius * 0.7)
+    group.add(eyeBlack)
+  }
+}
+
 // Minnesota Vikings midfield mark: the horns in a gold-ringed purple roundel
 // with the wordmark beneath, painted flat into the turf at the 50.
 let vikingsLogoTextureCache: THREE.CanvasTexture | null = null
@@ -611,8 +696,86 @@ export function createField() {
     world.add(banner)
   }
 
+  // End lines: the thick white stripe across the back of each end zone, level
+  // with the goal-post support.
+  for (const z of [18, -102]) {
+    const endLine = new THREE.Mesh(new THREE.PlaneGeometry(53.3, 0.34), lineMaterial)
+    endLine.rotation.x = -Math.PI / 2
+    endLine.position.set(0, 0.025, z)
+    world.add(endLine)
+  }
+
+  // Eight orange pylons, one at every goal-line and end-line corner.
+  const pylonMaterial = new THREE.MeshStandardMaterial({ color: 0xff6a00, emissive: 0x5c2500, emissiveIntensity: 0.4, roughness: 0.5 })
+  for (const z of [8, 18, -92, -102]) {
+    for (const x of [-26.65, 26.65]) {
+      const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.92, 0.34), pylonMaterial)
+      pylon.position.set(x, 0.46, z)
+      world.add(pylon)
+    }
+  }
+
+  // The broken "coaching line" a couple of yards outside each sideline, marking
+  // how far the benches and chain crew may creep toward the field.
+  for (const x of [-29, 29]) {
+    for (let z = 6; z >= -90; z -= 2.4) {
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 1.1), lineMaterial)
+      dash.rotation.x = -Math.PI / 2
+      dash.position.set(x, 0.028, z)
+      world.add(dash)
+    }
+  }
+
+  // Faint traffic wear worn into the turf where it gets hammered: both goal
+  // mouths and the middle of the field. Unlit and translucent so the painted
+  // lines still read cleanly on top.
+  const wearMaterial = new THREE.MeshBasicMaterial({ color: 0x0b3d1f, transparent: true, opacity: 0.16, depthWrite: false })
+  for (const z of [8, -42, -92]) {
+    const wear = new THREE.Mesh(new THREE.CircleGeometry(7.5, 24), wearMaterial)
+    wear.rotation.x = -Math.PI / 2
+    wear.scale.set(1, 0.5, 1)
+    wear.position.set(0, 0.02, z)
+    world.add(wear)
+  }
+
+  createChainCrewGear(-29.6, -42)
+
   createGoalPost(-102, 1)
   createGoalPost(18, -1)
+}
+
+// The chain gang's kit parked just outside the near sideline at midfield: two
+// orange rod markers linked by a chain, and a flip-style down box on a pole.
+function createChainCrewGear(x: number, z: number) {
+  const orange = new THREE.MeshStandardMaterial({ color: 0xff6a00, roughness: 0.5 })
+  const chrome = new THREE.MeshStandardMaterial({ color: 0x9aa4b0, metalness: 0.6, roughness: 0.4 })
+  const gear = new THREE.Group()
+
+  for (const rz of [z - 5, z + 5]) {
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 8), chrome)
+    rod.position.set(x, 1.2, rz)
+    gear.add(rod)
+    const flag = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.9, 10), orange)
+    flag.position.set(x, 1.9, rz)
+    gear.add(flag)
+  }
+  const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 10, 6), chrome)
+  chain.rotation.x = Math.PI / 2
+  chain.position.set(x, 0.4, z)
+  gear.add(chain)
+
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3, 8), chrome)
+  pole.position.set(x - 0.6, 1.5, z)
+  gear.add(pole)
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.12), orange)
+  box.position.set(x - 0.6, 3.05, z)
+  gear.add(box)
+  const downNumber = labelSprite('1', '#0b1220')
+  downNumber.scale.set(0.9, 0.9, 1)
+  downNumber.position.set(x - 0.6, 3.05, z + 0.12)
+  gear.add(downNumber)
+
+  world.add(gear)
 }
 
 function createGoalPost(z: number, facing: number) {
@@ -888,7 +1051,7 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
   const kit = isCoach ? undefined : UNIFORM_KITS[teamId]
   const jerseyMat = new THREE.MeshStandardMaterial({ color: jersey, roughness: 0.8 })
   const trimMat = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.7 })
-  const skinMat = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const skinMat = new THREE.MeshStandardMaterial({ color: pickSkinTone(), roughness: 0.85 })
   const pantsMat = new THREE.MeshStandardMaterial({
     color: isCoach ? 0xcbb58a : kit ? kit.pants : 0xe5e7eb,
     roughness: 0.8,
@@ -916,6 +1079,7 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     group.add(helmet)
     group.add(helmetDecal(teamId, 0.4, 2.4))
     if (kit) addKitHelmetStripe(group, kit, 0.42, 2.4)
+    addFace(group, { skin: skinMat, radius: 0.4, y: 2.4 })
     const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.46, 8), facemaskMat)
     facemask.rotation.z = Math.PI / 2
     facemask.position.set(0, 2.28, 0.36)
@@ -924,6 +1088,16 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), skinMat)
     head.position.y = 1.92
     group.add(head)
+    // Small nose and a bar of sunglasses so the coach has a face, not a blank ball.
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), skinMat)
+    nose.position.set(0, 1.9, 0.24)
+    group.add(nose)
+    const shades = new THREE.Mesh(
+      new THREE.BoxGeometry(0.34, 0.1, 0.08),
+      new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.3, metalness: 0.2 }),
+    )
+    shades.position.set(0, 1.97, 0.22)
+    group.add(shades)
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), jerseyMat)
     cap.position.y = 2.02
     group.add(cap)
@@ -969,6 +1143,7 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     shoe.position.set(legX, 0.06, 0.12)
     group.add(shoe)
   }
+  group.add(groundShadow(0.55))
   group.position.set(x, 0, z)
   group.rotation.y = facing + randomBetween(-0.35, 0.35)
   group.scale.setScalar(randomBetween(0.94, 1.06))

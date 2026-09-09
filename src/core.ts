@@ -136,6 +136,17 @@ export const PLAY_CLOCK_SECONDS = 40
 export const MOVE_SCALE = 0.9
 export const EYE_HEIGHT = 2.7
 
+// A spread of believable skin tones, light to deep. Every on-field player and
+// sideline figure picks one at build time so the roster reads as a squad of
+// individuals instead of one cloned model. (The instanced crowd stays a single
+// tone — it's too far away to tell, and per-instance colour is far costlier.)
+export const SKIN_TONES = [
+  0xf6d0b0, 0xf0b48a, 0xe5a173, 0xd68b5c, 0xc07a4b,
+  0xa9673d, 0x8d5524, 0x6f4321, 0x593018,
+] as const
+
+export const pickSkinTone = () => SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)]
+
 // The Vikings wear purple; the opponent is whichever NFC North rival the
 // player picks from the team-select dialog at the start of a game.
 export const VIKINGS_PURPLE = 0x8b5cf6
