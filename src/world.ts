@@ -50,8 +50,8 @@ let crowdGroup: THREE.Group | null = null
 export const crowdHead = { mesh: null as THREE.InstancedMesh | null }
 const crowdTransform = new THREE.Object3D()
 
-// While `performance.now()` is below this, the crowd jumps higher/faster —
-// set by celebrateTouchdown() so the stands erupt after a score.
+// While `performance.now()` is below this, the Vikings portion of the crowd
+// jumps higher/faster after a user touchdown. Away fans remain subdued.
 let crowdHypeUntil = 0
 
 export function aimCamera() {
@@ -1050,9 +1050,11 @@ export function updateCrowd(time: number) {
   if (!headMesh) return
   const hype = time < crowdHypeUntil ? 1 : 0
   for (const fan of crowdMembers) {
+    // colorIndex 0 is Vikings purple; colorIndex 1 is the selected opponent.
+    const fanHype = fan.colorIndex === 0 ? hype : 0
     const s = fan.scale
-    const jump = Math.max(0, Math.sin(time * (0.008 + hype * 0.004) + fan.phase)) * (0.2 + hype * 0.6)
-    const sway = Math.sin(time * 0.0022 + fan.phase) * (0.05 + hype * 0.05)
+    const jump = Math.max(0, Math.sin(time * (0.008 + fanHype * 0.004) + fan.phase)) * (0.2 + fanHype * 0.6)
+    const sway = Math.sin(time * 0.0022 + fan.phase) * (0.05 + fanHype * 0.05)
     crowdTransform.rotation.set(0, fan.facing + sway, 0)
     crowdTransform.scale.setScalar(s)
     crowdTransform.position.set(fan.x, fan.y + 0.28 * s + jump, fan.z)
@@ -1244,8 +1246,8 @@ export function updateFireworks(delta: number) {
   }
 }
 
-// One call, fired on a touchdown: deafening roar, fireworks, and a crowd that
-// leaps out of its seats for a few seconds.
+// One call, fired on a user touchdown: a roar, fireworks, and Vikings fans
+// leaping out of their seats for a few seconds.
 export function celebrateTouchdown() {
   playTouchdownRoar()
   launchFireworks()

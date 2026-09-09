@@ -70,6 +70,7 @@ import {
   createDefender,
   createLineman,
 } from './entities.ts'
+import { addPoints, clockExpiryForQuarter, kickIsGood, kickSuccessChance, opponentYardAfterTurnover } from './gameRules.ts'
 
 export function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSeries = true) {
   if (state.gameOver) return
@@ -220,11 +221,11 @@ function handleClockExpired() {
   if (state.gameOver || state.clockEventHandled) return
   state.clockEventHandled = true
   state.running = false
-  if (state.quarter >= 4) {
+  if (clockExpiryForQuarter(state.quarter) === 'endGame') {
     endGame()
     return
   }
-  if (state.quarter === 2) {
+  if (clockExpiryForQuarter(state.quarter) === 'halftime') {
     playCall.classList.add('is-hidden')
     defenseCall.classList.add('is-hidden')
     patCall.classList.add('is-hidden')
@@ -363,7 +364,7 @@ export function offensiveMenu(lead: string) {
 
 function safety() {
   state.running = false
-  state.opponentScore += 2
+  state.opponentScore = addPoints(state.opponentScore, 2)
   statusText.textContent = 'SAFETY — two points for the opponent.'
   updateHud()
   if (state.quarter >= 5) {
@@ -437,9 +438,7 @@ export function resolveKick() {
   const distance = state.kickDistance
   // Forgiving timing window and a gentler distance falloff — a well-timed kick
   // inside ~45 yards is nearly automatic, and even a mistimed one has a chance.
-  const timing = 1 - Math.min(1, Math.abs(state.kickPower - 54) / 22)
-  const distanceChance = type === 'extraPoint' ? 0.99 : THREE.MathUtils.clamp(1.16 - (distance - 20) * 0.011, 0.2, 0.99)
-  const made = Math.random() < distanceChance * (0.5 + timing * 0.5)
+  const made = kickIsGood(kickSuccessChance(type, distance, state.kickPower), Math.random())
   state.kickType = null
   kickMeter.classList.add('is-hidden')
 
@@ -492,7 +491,7 @@ export function updateKickFlight(delta: number) {
 function settleKick(type: KickType, distance: number, made: boolean) {
   if (type === 'extraPoint') {
     if (made) {
-      state.score += 1
+      state.score = addPoints(state.score, 1)
       statusText.textContent = `EXTRA POINT IS GOOD. You lead ${state.score}-${state.opponentScore}.`
     } else {
       statusText.textContent = 'Extra point is NO GOOD.'
@@ -501,7 +500,7 @@ function settleKick(type: KickType, distance: number, made: boolean) {
     return
   }
   if (made) {
-    state.score += 3
+    state.score = addPoints(state.score, 3)
     statusText.textContent = `${distance}-YARD FIELD GOAL IS GOOD! You lead ${state.score}-${state.opponentScore}.`
     updateHud()
     if (state.quarter >= 5) {
@@ -540,7 +539,7 @@ export function turnOverOnDowns() {
     return
   }
   state.running = false
-  const oppYard = 100 - state.ballOn
+  const oppYard = opponentYardAfterTurnover(state.ballOn)
   statusText.textContent = 'TURNOVER ON DOWNS — get ready to play defense!'
   updateHud()
   schedule(() => startDefensiveSeries(defensiveSpotZ(oppYard), false), 1200)
@@ -548,7 +547,7 @@ export function turnOverOnDowns() {
 
 function scoreTouchdown() {
   state.running = false
-  state.score += 6
+  state.score = addPoints(state.score, 6)
   celebrateTouchdown()
   updateHud()
   // Overtime is sudden death — reaching the end zone ends it on the spot.
@@ -609,7 +608,7 @@ function resolveTwoPoint(scored: boolean) {
   releaseMouse()
   playCall.classList.add('is-hidden')
   if (scored) {
-    state.score += 2
+    state.score = addPoints(state.score, 2)
     statusText.textContent = `TWO-POINT CONVERSION IS GOOD! You lead ${state.score}-${state.opponentScore}.`
   } else {
     statusText.textContent = 'The two-point try comes up short — no good.'
@@ -652,9 +651,9 @@ export function finishDefensivePlay(tackled: boolean) {
     schedule(() => resetDrive(spotZ), 1200)
     return
   }
-  state.opponentScore += 6
+  state.opponentScore = addPoints(state.opponentScore, 6)
   const patGood = Math.random() < 0.94
-  if (patGood) state.opponentScore += 1
+  if (patGood) state.opponentScore = addPoints(state.opponentScore, 1)
   statusText.textContent = `OPPONENT TOUCHDOWN — extra point ${patGood ? 'good' : 'no good'}. They lead ${state.opponentScore}-${state.score}.`
   updateHud()
   if (state.quarter >= 5) {
