@@ -23,6 +23,26 @@ npm run build    # type-check with tsc, then bundle to dist/
 npm run preview  # serve the production build locally
 ```
 
+## Streamlined testing
+
+Run the automated rules suite before committing gameplay changes:
+
+```bash
+npm test          # run the complete Vitest suite once
+npm run test:watch # re-run relevant tests as files change
+```
+
+The tests run without a browser or the 3D renderer, so feedback is fast. They
+cover field-position conversion and display formatting, down-and-distance,
+turnover field position, scoring, clock-expiry decisions, and kick-probability
+boundaries. The browser game uses the same helpers in `src/gameMath.ts` and
+`src/gameRules.ts`, keeping these checks focused on actual gameplay rules.
+
+Use `npm run build` alongside `npm test`: the build catches TypeScript and
+bundling errors, while the tests catch rules regressions. For visual and input
+changes, also do a brief manual smoke test of a run, pass, touchdown/PAT, kick,
+and defensive possession in the browser.
+
 ## How to play
 
 Each possession starts with a play-call dialog. Pick an offensive play (or a
