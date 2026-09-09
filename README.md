@@ -39,9 +39,24 @@ boundaries. The browser game uses the same helpers in `src/gameMath.ts` and
 `src/gameRules.ts`, keeping these checks focused on actual gameplay rules.
 
 Use `npm run build` alongside `npm test`: the build catches TypeScript and
-bundling errors, while the tests catch rules regressions. For visual and input
-changes, also do a brief manual smoke test of a run, pass, touchdown/PAT, kick,
-and defensive possession in the browser.
+bundling errors, while the tests catch rules regressions.
+
+### Manual 3D smoke test
+
+The renderer and first-person input need a quick browser check after changes:
+
+- [ ] Start a game, click the field, and confirm mouse look captures/releases
+  normally and the camera rotates without jumps or inverted axes.
+- [ ] Move with WASD and arrow keys; hold and release Shift/Space to confirm
+  sprint, stamina drain, recovery, and normal movement all work.
+- [ ] On a passing play, throw with `1`/`2`/`3`, click a receiver, and use `Q`;
+  verify the intended target/action occurs and the ball/play resolves cleanly.
+- [ ] Run into defenders and through the end zone; confirm tackles, scoring,
+  HUD updates, and the next play/try flow are visible and responsive.
+- [ ] Complete a field goal or punt and time a kick with Space; verify the kick
+  meter, ball flight, and resulting possession update.
+- [ ] On a touch device or emulator, use Left, Right, and Sprint to confirm the
+  on-screen controls work and do not obstruct essential HUD elements.
 
 ## How to play
 
