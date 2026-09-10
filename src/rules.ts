@@ -66,9 +66,11 @@ import {
   buildDefense,
   buildOffensiveLine,
   buildReceivers,
+  clearKickBlockers,
   clearPlayers,
   createDefender,
   createLineman,
+  spawnKickBlockers,
 } from './entities.ts'
 import { addPoints, clockExpiryForQuarter, kickIsGood, kickSuccessChance, opponentYardAfterTurnover } from './gameRules.ts'
 
@@ -258,6 +260,7 @@ export function startGame() {
   state.twoPointActive = false
   state.kickType = null
   state.kickFlight = null
+  clearKickBlockers()
   state.stamina = 1
   state.gassed = false
   kickMeter.classList.add('is-hidden')
@@ -405,9 +408,10 @@ export function startKick(type: KickType, distance: number) {
   state.kickDistance = distance
   state.kickPower = 0
   state.kickFlight = null
-  // After a touchdown, spot the extra-point attempt at the 2-yard line.
+  // After a touchdown, spot the extra-point snap at the 15-yard line — the NFL
+  // moved it back there in 2015, turning the PAT into a ~33-yard kick.
   if (type === 'extraPoint') {
-    state.ballOn = 98
+    state.ballOn = 85
     state.cameraZ = losZ(state.ballOn)
   }
   keys.sprint = false
@@ -424,6 +428,8 @@ export function startKick(type: KickType, distance: number) {
   }
   // A second purple player beside the holder makes the extra-point unit feel set.
   createLineman(2.8, state.cameraZ - 2.8, 88)
+  // The opponent's block unit lines up across the ball and rushes the kick.
+  spawnKickBlockers(state.cameraZ)
   balls.player.visible = true
   balls.thrown.visible = false
   kickPrompt.textContent = `${type === 'extraPoint' ? 'Extra point' : `${distance}-yard field goal`} — press Space to kick`
@@ -438,29 +444,36 @@ export function resolveKick() {
   const distance = state.kickDistance
   // Forgiving timing window and a gentler distance falloff — a well-timed kick
   // inside ~45 yards is nearly automatic, and even a mistimed one has a chance.
-  const made = kickIsGood(kickSuccessChance(type, distance, state.kickPower), Math.random())
+  let made = kickIsGood(kickSuccessChance(type, distance, state.kickPower), Math.random())
+  // The block unit gets a hand on the ball once in a while — rarely on a PAT,
+  // more often the longer (and flatter) the field goal. A blocked kick is dead.
+  const blockChance = type === 'extraPoint' ? 0.03 : THREE.MathUtils.clamp((distance - 25) * 0.004, 0.02, 0.12)
+  const blocked = Math.random() < blockChance
+  if (blocked) made = false
   state.kickType = null
   kickMeter.classList.add('is-hidden')
 
   // Send the ball on a visible arc toward the uprights; the outcome is settled
-  // once it lands (see updateKickFlight / settleKick).
+  // once it lands (see updateKickFlight / settleKick). A blocked kick knuckles
+  // low into the rush a few yards past the line instead.
   const goalZ = OPPONENT_GOAL_LINE_Z - 10
   const from = new THREE.Vector3(0, 0.35, state.cameraZ - 1.4)
-  const wide = made ? randomBetween(-1.1, 1.1) : (Math.random() < 0.5 ? -1 : 1) * randomBetween(6.5, 11)
-  const shortBy = made ? 0 : (Math.random() < 0.35 ? randomBetween(10, 22) : 0)
-  const to = new THREE.Vector3(wide, made ? 9 : shortBy ? 2.5 : 8.4, goalZ + shortBy)
-  const apex = Math.max(from.y, to.y) + THREE.MathUtils.clamp(distance * 0.14, 5, 11)
-  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
-  state.kickFlight = {
-    t: 0,
-    dur: THREE.MathUtils.clamp(distance * 0.028, 1, 2),
-    from,
-    ctrl,
-    to,
-    type,
-    distance,
-    made,
+  let to: THREE.Vector3
+  let apex: number
+  let dur: number
+  if (blocked) {
+    to = new THREE.Vector3((Math.random() < 0.5 ? -1 : 1) * randomBetween(1.5, 4.5), 1, state.cameraZ - 8.5)
+    apex = 2.6
+    dur = 0.5
+  } else {
+    const wide = made ? randomBetween(-1.1, 1.1) : (Math.random() < 0.5 ? -1 : 1) * randomBetween(6.5, 11)
+    const shortBy = made ? 0 : (Math.random() < 0.35 ? randomBetween(10, 22) : 0)
+    to = new THREE.Vector3(wide, made ? 9 : shortBy ? 2.5 : 8.4, goalZ + shortBy)
+    apex = Math.max(from.y, to.y) + THREE.MathUtils.clamp(distance * 0.14, 5, 11)
+    dur = THREE.MathUtils.clamp(distance * 0.028, 1, 2)
   }
+  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
+  state.kickFlight = { t: 0, dur, from, ctrl, to, type, distance, made, blocked }
   balls.player.visible = false
   balls.thrown.visible = true
   balls.thrown.position.copy(from)
@@ -484,17 +497,19 @@ export function updateKickFlight(delta: number) {
     balls.thrown.visible = false
     const done = k
     state.kickFlight = null
-    settleKick(done.type, done.distance, done.made)
+    settleKick(done.type, done.distance, done.made, done.blocked)
   }
 }
 
-function settleKick(type: KickType, distance: number, made: boolean) {
+function settleKick(type: KickType, distance: number, made: boolean, blocked = false) {
+  // The rush has done its job either way — clear it off the field.
+  clearKickBlockers()
   if (type === 'extraPoint') {
     if (made) {
       state.score = addPoints(state.score, 1)
       statusText.textContent = `EXTRA POINT IS GOOD. You lead ${state.score}-${state.opponentScore}.`
     } else {
-      statusText.textContent = 'Extra point is NO GOOD.'
+      statusText.textContent = blocked ? 'The extra point is BLOCKED — no good!' : 'Extra point is NO GOOD.'
     }
     afterPatResolved()
     return
@@ -510,9 +525,12 @@ function settleKick(type: KickType, distance: number, made: boolean) {
     schedule(() => kickoff('defense'), 1500)
     return
   }
-  // Missed: opponent takes over at the spot of the hold, but no closer than their 20.
+  // Missed or blocked: opponent takes over at the spot of the hold, but no
+  // closer than their 20.
   const oppYard = Math.max(20, 108 - state.ballOn)
-  giveBallToOpponent(oppYard, `${distance}-yard field goal is NO GOOD. Opponent takes over.`)
+  giveBallToOpponent(oppYard, blocked
+    ? `The ${distance}-yard field goal is BLOCKED! Opponent takes over.`
+    : `${distance}-yard field goal is NO GOOD. Opponent takes over.`)
 }
 
 function puntBall() {
@@ -685,6 +703,7 @@ function resetDrive(startZ = USER_TWENTY_Z) {
   state.lastPlayStoppedClock = true
   state.clockEventHandled = false
   buildDefense()
+  clearKickBlockers()
   while (linemen.length) world.remove(linemen.pop()!.mesh)
   while (receivers.length) world.remove(receivers.pop()!.mesh)
   while (teammates.length) world.remove(teammates.pop()!.mesh)

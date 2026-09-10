@@ -446,6 +446,8 @@ export const state = {
     type: KickType
     distance: number
     made: boolean
+    // True when the defensive block unit got a hand on it — always no good.
+    blocked: boolean
   },
   // Brief window after a catch where you can't be tackled, so you get a step.
   catchGraceUntil: 0,
@@ -475,3 +477,7 @@ export const linemen: Lineman[] = []
 export const receivers: Receiver[] = []
 // Your AI defenders that pursue alongside you when the opponent has the ball.
 export const teammates: Defender[] = []
+// The opponent's field-goal / extra-point block unit: a wall that crashes the
+// line and leaps for the kick. Cosmetic, but kept in its own bucket so it is
+// animated and cleaned up independently of the live-play defenders.
+export const kickBlockers: Defender[] = []

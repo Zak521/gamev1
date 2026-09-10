@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { TEAMS, defenders, linemen, pickSkinTone, randomBetween, receivers, state, teammates } from './core.ts'
+import { TEAMS, defenders, kickBlockers, linemen, pickSkinTone, randomBetween, receivers, state, teammates } from './core.ts'
 import type { Defender, PassPlayId, TeamId } from './core.ts'
 import { addFace, camera, groundShadow, helmetDecal, jerseyNameplate, labelSprite, playerView, world } from './world.ts'
 import { UNIFORM_KITS, addKitLegStripe, addKitSleeveHoops, addKitYoke } from './kits.ts'
@@ -514,4 +514,70 @@ export function clearPlayers() {
   while (linemen.length) world.remove(linemen.pop()!.mesh)
   while (receivers.length) world.remove(receivers.pop()!.mesh)
   while (teammates.length) world.remove(teammates.pop()!.mesh)
+  clearKickBlockers()
+}
+
+// ---------------------------------------------------------------------------
+// Field-goal / extra-point block unit
+//
+// On any placekick the opponent puts a rush on the field, just like the NFL:
+// a six-man interior wall a yard off the ball plus two edge rushers off the
+// tackles, all facing the holder. They stand crouched pre-snap, then on the
+// kick they crash forward and the interior men leap with their arms up. The
+// actual make/miss is still decided by the timing meter in resolveKick(); this
+// is the visual, and it backs the small "blocked" chance rolled there.
+// ---------------------------------------------------------------------------
+
+type BlockerAnim = { mesh: THREE.Group; startX: number; startZ: number; leap: number; phase: number; rush: number }
+const blockerAnims: BlockerAnim[] = []
+
+export function clearKickBlockers() {
+  while (kickBlockers.length) world.remove(kickBlockers.pop()!.mesh)
+  blockerAnims.length = 0
+}
+
+export function spawnKickBlockers(los: number) {
+  clearKickBlockers()
+  const opponent = TEAMS[state.opponentTeam]
+  // [x offset, extra depth]: the interior wall sits square on the line, the two
+  // edge rushers start a touch wider and deeper so they loop in.
+  const spots: Array<[number, number]> = [
+    [-8.6, 0], [-5.2, 0], [-1.8, 0], [1.8, 0], [5.2, 0], [8.6, 0],
+    [-12.6, 1.6], [12.6, 1.6],
+  ]
+  spots.forEach(([x, back], i) => {
+    const z = los - 6.5 - back
+    const d = createDefender(x, z, opponent.primary, 61 + i, opponent.id, false, kickBlockers)
+    d.mesh.rotation.y = Math.PI // face back toward the holder
+    blockerAnims.push({
+      mesh: d.mesh,
+      startX: x,
+      startZ: z,
+      leap: 1 - Math.min(0.85, Math.abs(x) / 13),
+      phase: randomBetween(0, Math.PI * 2),
+      rush: 0,
+    })
+  })
+}
+
+export function updateKickBlockers(delta: number) {
+  const rushing = !!state.kickFlight
+  for (const b of blockerAnims) {
+    if (rushing) b.rush = Math.min(1, b.rush + delta * 2.6)
+    if (b.rush <= 0) {
+      // Set: crouched on the line, rocking on the balls of the feet.
+      b.mesh.position.set(b.startX, Math.abs(Math.sin(performance.now() * 0.006 + b.phase)) * 0.05, b.startZ)
+      b.mesh.rotation.x = -0.12
+      continue
+    }
+    // Smoothstep the surge off the line toward the holder's spot; edge men
+    // pinch in as they come.
+    const ease = b.rush * b.rush * (3 - 2 * b.rush)
+    b.mesh.position.x = b.startX * (1 - 0.45 * ease)
+    b.mesh.position.z = b.startZ + 4.8 * ease
+    // Leap: up early in the surge, arms and chest thrown at the ball, then down.
+    const leap = Math.sin(Math.min(1, b.rush * 1.25) * Math.PI) * b.leap
+    b.mesh.position.y = leap * 1.15
+    b.mesh.rotation.x = -0.12 - leap * 0.5
+  }
 }

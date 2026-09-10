@@ -31,7 +31,7 @@ import {
   updateFireworks,
   view,
 } from './world.ts'
-import { createPlayerView } from './entities.ts'
+import { createPlayerView, updateKickBlockers } from './entities.ts'
 import {
   goForTwo,
   openTeamSelect,
@@ -68,6 +68,7 @@ function frame(time: number) {
     kickFill.style.width = `${state.kickPower}%`
   }
   if (state.kickFlight) updateKickFlight(delta)
+  if (state.kickType || state.kickFlight) updateKickBlockers(delta)
   updateGame(delta)
   for (const cloud of clouds) {
     cloud.position.x += cloud.userData.drift * delta
