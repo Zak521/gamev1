@@ -32,3 +32,11 @@ export function kickSuccessChance(type: 'fieldGoal' | 'extraPoint', distance: nu
 export function kickIsGood(chance: number, roll: number) {
   return roll < chance
 }
+
+// Net punt yardage from the same timing meter used for field goals — a kick
+// caught right on the sweet spot (power 54) drives it deep; a badly mistimed
+// one dies short. Random hang/coverage variance is layered on by the caller.
+export function puntNetYards(power: number) {
+  const timing = 1 - Math.min(1, Math.abs(power - 54) / 34)
+  return 32 + timing * 20
+}

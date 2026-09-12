@@ -88,7 +88,7 @@ export type SpecialPlayId = 'fieldGoal' | 'punt' | 'kneel'
 export type PlayId = PassPlayId | RunPlayId | SpecialPlayId
 export type PlayTab = 'pass' | 'run' | 'special'
 export type DefenseCall = 'base' | 'blitz' | 'cover2' | 'goalline' | 'spy'
-export type KickType = 'fieldGoal' | 'extraPoint'
+export type KickType = 'fieldGoal' | 'extraPoint' | 'punt'
 
 export type OffensivePlay = { id: PlayId; name: string; blurb: string; tab: PlayTab }
 
@@ -436,7 +436,8 @@ export const state = {
   kickType: null as KickType | null,
   kickPower: 0,
   kickDistance: 0,
-  // Live kick in flight toward the uprights (field goal / extra point).
+  // Live kick in flight — toward the uprights for a field goal / extra
+  // point, or downfield for a punt.
   kickFlight: null as null | {
     t: number
     dur: number
