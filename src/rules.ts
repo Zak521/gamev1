@@ -466,7 +466,10 @@ export function resolveKick() {
     apex = 2.6
     dur = 0.5
   } else {
-    const wide = made ? randomBetween(-1.1, 1.1) : (Math.random() < 0.5 ? -1 : 1) * randomBetween(6.5, 11)
+    // The uprights sit at x = ±9.25 (see createGoalPost in world.ts) — a missed
+    // kick has to clear that width, or it visually sails through the posts
+    // while still being scored a miss, which reads as a bug, not a bad kick.
+    const wide = made ? randomBetween(-1.1, 1.1) : (Math.random() < 0.5 ? -1 : 1) * randomBetween(9.8, 14)
     const shortBy = made ? 0 : (Math.random() < 0.35 ? randomBetween(10, 22) : 0)
     to = new THREE.Vector3(wide, made ? 9 : shortBy ? 2.5 : 8.4, goalZ + shortBy)
     apex = Math.max(from.y, to.y) + THREE.MathUtils.clamp(distance * 0.14, 5, 11)
