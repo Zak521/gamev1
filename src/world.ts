@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import {
   END_ZONE_DEPTH,
   EYE_HEIGHT,
@@ -58,8 +59,10 @@ export const crowdBodyMeshes: THREE.InstancedMesh[] = []
 export const crowdShoulderMeshes: THREE.InstancedMesh[] = []
 let crowdGroup: THREE.Group | null = null
 
-// The instanced crowd's head layer, wired up inside createStadium().
+// The instanced crowd's head and arm layers (both skin-toned, shared across
+// every color bucket), wired up inside rebuildCrowd().
 export const crowdHead = { mesh: null as THREE.InstancedMesh | null }
+export const crowdArms = { mesh: null as THREE.InstancedMesh | null }
 const crowdTransform = new THREE.Object3D()
 
 // While `performance.now()` is below this, the Vikings portion of the crowd
@@ -808,14 +811,32 @@ function createGoalPost(z: number, facing: number) {
   world.add(post)
 }
 
+// A pair of limbs (two legs, or two arms) as a single merged geometry so the
+// instanced crowd can place both with one matrix per fan per layer, keeping
+// the same one-mesh-per-body-part draw-call budget the flat blob shapes used.
+function buildLimbPairGeometry(radiusTop: number, radiusBottom: number, height: number, offsetX: number, tiltZ = 0) {
+  const left = new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 6)
+  left.rotateZ(tiltZ)
+  left.translate(-offsetX, 0, 0)
+  const right = new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 6)
+  right.rotateZ(-tiltZ)
+  right.translate(offsetX, 0, 0)
+  const merged = mergeGeometries([left, right])
+  left.dispose()
+  right.dispose()
+  return merged
+}
+
 // The Vikings are the home team, so their purple jerseys are the single
 // biggest block in the bowl. A share of every section wears the selected
 // opponent's color, and — since a real crowd is mostly not head-to-toe team
-// gear — a bigger share wears plain street clothes in a handful of neutral
-// tones. Jersey wearers get a contrast-color shoulder yoke, just like the
-// real kits every on-field player wears, and both the jersey shade and the
-// skin tone get a touch of per-fan variance so a packed section doesn't read
-// as one molded block of plastic.
+// gear — a smaller share wears plain street clothes in a handful of neutral
+// tones. Jersey wearers get a contrast-color torso, just like the real kits
+// every on-field player wears, and both the jersey shade and the skin tone
+// get a touch of per-fan variance so a packed section doesn't read as one
+// molded block of plastic. Each fan is built from the same limbed silhouette
+// as the on-field players — legs, torso, bare arms, head — just simplified
+// and instanced so thousands of them stay cheap to animate.
 export function rebuildCrowd() {
   if (crowdGroup) {
     world.remove(crowdGroup)
@@ -832,22 +853,29 @@ export function rebuildCrowd() {
   crowdBodyMeshes.length = 0
   crowdShoulderMeshes.length = 0
   crowdHead.mesh = null
+  crowdArms.mesh = null
 
   // Bucket 0 is home purple, bucket 1 the chosen opponent, and the rest are
   // plain street-clothes colors. Jersey buckets get their team's accent color
-  // on the shoulder layer (the yoke stripe); neutral buckets just repeat
-  // their own color there, since there's no trim to contrast against.
+  // on the torso layer; neutral buckets just repeat their own color there,
+  // since there's no trim to contrast against.
   const neutralFanColors = [0x334155, 0x1f2937, 0x7c2d12, 0xe2e8f0, 0x64748b, 0x0c4a6e]
   const fanColors = [TEAMS.vikings.primary, TEAMS[state.opponentTeam].primary, ...neutralFanColors]
   const fanAccents = [TEAMS.vikings.accent, TEAMS[state.opponentTeam].accent, ...neutralFanColors]
   const fanHeadGeometry = new THREE.SphereGeometry(0.15, 8, 6)
-  const fanBodyGeometry = new THREE.CylinderGeometry(0.19, 0.26, 0.52, 7)
-  const fanShoulderGeometry = new THREE.BoxGeometry(0.52, 0.24, 0.32)
+  // Legs and arms are limb pairs, like the players; the torso is a taller
+  // block than the old flat shoulder-yoke so the silhouette actually reads
+  // as a person rather than a stacked blob.
+  const fanBodyGeometry = buildLimbPairGeometry(0.085, 0.12, 0.5, 0.115)
+  const fanShoulderGeometry = new THREE.BoxGeometry(0.46, 0.46, 0.28)
+  const fanArmGeometry = buildLimbPairGeometry(0.05, 0.06, 0.46, 0.29, 0.12)
   const fanBodyMatrices = fanColors.map(() => [] as THREE.Matrix4[])
   const fanShoulderMatrices = fanColors.map(() => [] as THREE.Matrix4[])
   const fanBodyColors = fanColors.map(() => [] as THREE.Color[])
   const fanHeadMatrices: THREE.Matrix4[] = []
   const fanHeadColors: THREE.Color[] = []
+  const fanArmMatrices: THREE.Matrix4[] = []
+  const fanArmColors: THREE.Color[] = []
   const fanTransform = new THREE.Object3D()
   const shadeColor = new THREE.Color()
 
@@ -855,30 +883,33 @@ export function rebuildCrowd() {
     const bodyIndex = fanBodyMatrices[colorIndex].length
     const headIndex = fanHeadMatrices.length
     const scale = randomBetween(0.82, 1.12)
+    const skin = pickSkinTone()
     fanTransform.rotation.set(0, facing, 0)
     fanTransform.scale.setScalar(scale)
-    fanTransform.position.set(x, y + 0.28 * scale, z)
+    fanTransform.position.set(x, y + 0.26 * scale, z)
     fanTransform.updateMatrix()
     fanBodyMatrices[colorIndex].push(fanTransform.matrix.clone())
-    fanTransform.position.y = y + 0.56 * scale
+    fanTransform.position.y = y + 0.58 * scale
     fanTransform.updateMatrix()
     fanShoulderMatrices[colorIndex].push(fanTransform.matrix.clone())
-    fanTransform.position.y = y + 0.72 * scale
+    fanArmMatrices.push(fanTransform.matrix.clone())
+    fanTransform.position.y = y + 0.82 * scale
     fanTransform.updateMatrix()
     fanHeadMatrices.push(fanTransform.matrix.clone())
     fanTransform.scale.setScalar(1)
     shadeColor.set(fanColors[colorIndex]).offsetHSL(0, 0, randomBetween(-0.1, 0.08))
     fanBodyColors[colorIndex].push(shadeColor.clone())
-    fanHeadColors.push(new THREE.Color(pickSkinTone()))
+    fanHeadColors.push(new THREE.Color(skin))
+    fanArmColors.push(new THREE.Color(skin))
     crowdMembers.push({ x, y, z, facing, phase: randomBetween(0, Math.PI * 2), scale, colorIndex, bodyIndex, headIndex })
   }
 
-  // Roughly 60% home purple, 14% the chosen opponent's color, and the rest
-  // spread evenly across the neutral street-clothes palette.
+  // Roughly 70% home purple, 10% the chosen opponent's color sprinkled in,
+  // and the rest spread evenly across the neutral street-clothes palette.
   const crowdColor = () => {
     const roll = Math.random()
-    if (roll < 0.6) return 0
-    if (roll < 0.74) return 1
+    if (roll < 0.7) return 0
+    if (roll < 0.8) return 1
     return 2 + Math.floor(Math.random() * neutralFanColors.length)
   }
 
@@ -937,6 +968,18 @@ export function rebuildCrowd() {
   if (heads.instanceColor) heads.instanceColor.needsUpdate = true
   crowdGroup.add(heads)
   crowdHead.mesh = heads
+  // Bare arms are skin-toned regardless of jersey color, so they get one
+  // shared instanced mesh (like the heads) instead of a per-team bucket.
+  const armMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, vertexColors: true })
+  const arms = new THREE.InstancedMesh(fanArmGeometry, armMaterial, fanArmMatrices.length)
+  fanArmMatrices.forEach((matrix, index) => {
+    arms.setMatrixAt(index, matrix)
+    arms.setColorAt(index, fanArmColors[index])
+  })
+  arms.instanceMatrix.needsUpdate = true
+  if (arms.instanceColor) arms.instanceColor.needsUpdate = true
+  crowdGroup.add(arms)
+  crowdArms.mesh = arms
 }
 
 export function createStadium() {
@@ -1482,7 +1525,8 @@ export function updateScoreboard() {
 
 export function updateCrowd(time: number) {
   const headMesh = crowdHead.mesh
-  if (!headMesh) return
+  const armsMesh = crowdArms.mesh
+  if (!headMesh || !armsMesh) return
   const hype = time < crowdHypeUntil ? 1 : 0
   for (const fan of crowdMembers) {
     // colorIndex 0 is Vikings purple; colorIndex 1 is the selected opponent.
@@ -1492,13 +1536,14 @@ export function updateCrowd(time: number) {
     const sway = Math.sin(time * 0.0022 + fan.phase) * (0.05 + fanHype * 0.05)
     crowdTransform.rotation.set(0, fan.facing + sway, 0)
     crowdTransform.scale.setScalar(s)
-    crowdTransform.position.set(fan.x, fan.y + 0.28 * s + jump, fan.z)
+    crowdTransform.position.set(fan.x, fan.y + 0.26 * s + jump, fan.z)
     crowdTransform.updateMatrix()
     crowdBodyMeshes[fan.colorIndex].setMatrixAt(fan.bodyIndex, crowdTransform.matrix)
-    crowdTransform.position.y = fan.y + 0.56 * s + jump
+    crowdTransform.position.y = fan.y + 0.58 * s + jump
     crowdTransform.updateMatrix()
     crowdShoulderMeshes[fan.colorIndex].setMatrixAt(fan.bodyIndex, crowdTransform.matrix)
-    crowdTransform.position.y = fan.y + 0.72 * s + jump * 1.05
+    armsMesh.setMatrixAt(fan.headIndex, crowdTransform.matrix)
+    crowdTransform.position.y = fan.y + 0.82 * s + jump * 1.05
     crowdTransform.updateMatrix()
     headMesh.setMatrixAt(fan.headIndex, crowdTransform.matrix)
   }
@@ -1506,6 +1551,7 @@ export function updateCrowd(time: number) {
   crowdBodyMeshes.forEach((bodies) => { bodies.instanceMatrix.needsUpdate = true })
   crowdShoulderMeshes.forEach((shoulders) => { shoulders.instanceMatrix.needsUpdate = true })
   headMesh.instanceMatrix.needsUpdate = true
+  armsMesh.instanceMatrix.needsUpdate = true
 }
 
 // ---------------------------------------------------------------------------
