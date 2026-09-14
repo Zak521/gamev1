@@ -4,6 +4,8 @@ import {
   EYE_HEIGHT,
   TEAMS,
   canvas,
+  cssHex,
+  downAndDistance,
   formatClock,
   keys,
   ordinal,
@@ -11,7 +13,7 @@ import {
   randomBetween,
   state,
 } from './core.ts'
-import type { CrowdMember, TeamId } from './core.ts'
+import type { CrowdMember, TeamId, TeamInfo } from './core.ts'
 import {
   UNIFORM_KITS,
   addKitHelmetStripe,
@@ -34,10 +36,19 @@ export const playerView = new THREE.Group()
 // First-person look direction. Reassigned by resetView() and the mouse handler.
 export const view = { yaw: 0, pitch: 0 }
 
-// The 3D scoreboard's live texture, wired up inside createStadium().
+// The jumbotron's live score-bug texture, wired up inside createJumbotron().
 export const scoreboard = {
   canvas: null as HTMLCanvasElement | null,
   texture: null as THREE.CanvasTexture | null,
+}
+
+// The jumbotron's scrolling sponsor ticker: a repeating texture whose UV
+// offset is nudged forward every frame by updateJumbotronTicker(), rather
+// than redrawing the canvas — cheap enough to run continuously.
+const jumbotronTicker = {
+  canvas: null as HTMLCanvasElement | null,
+  texture: null as THREE.CanvasTexture | null,
+  offset: 0,
 }
 
 // Crowd & sky collections, populated by createStadium() / createSky().
@@ -797,9 +808,14 @@ function createGoalPost(z: number, facing: number) {
   world.add(post)
 }
 
-// The Vikings are the home team, so their purple jerseys fill the bowl. A
-// small, random share of every section wears the selected opponent's color,
-// making the away support visible without taking over the stadium.
+// The Vikings are the home team, so their purple jerseys are the single
+// biggest block in the bowl. A share of every section wears the selected
+// opponent's color, and — since a real crowd is mostly not head-to-toe team
+// gear — a bigger share wears plain street clothes in a handful of neutral
+// tones. Jersey wearers get a contrast-color shoulder yoke, just like the
+// real kits every on-field player wears, and both the jersey shade and the
+// skin tone get a touch of per-fan variance so a packed section doesn't read
+// as one molded block of plastic.
 export function rebuildCrowd() {
   if (crowdGroup) {
     world.remove(crowdGroup)
@@ -817,15 +833,23 @@ export function rebuildCrowd() {
   crowdShoulderMeshes.length = 0
   crowdHead.mesh = null
 
-  const fanColors = [TEAMS.vikings.primary, TEAMS[state.opponentTeam].primary]
+  // Bucket 0 is home purple, bucket 1 the chosen opponent, and the rest are
+  // plain street-clothes colors. Jersey buckets get their team's accent color
+  // on the shoulder layer (the yoke stripe); neutral buckets just repeat
+  // their own color there, since there's no trim to contrast against.
+  const neutralFanColors = [0x334155, 0x1f2937, 0x7c2d12, 0xe2e8f0, 0x64748b, 0x0c4a6e]
+  const fanColors = [TEAMS.vikings.primary, TEAMS[state.opponentTeam].primary, ...neutralFanColors]
+  const fanAccents = [TEAMS.vikings.accent, TEAMS[state.opponentTeam].accent, ...neutralFanColors]
   const fanHeadGeometry = new THREE.SphereGeometry(0.15, 8, 6)
   const fanBodyGeometry = new THREE.CylinderGeometry(0.19, 0.26, 0.52, 7)
   const fanShoulderGeometry = new THREE.BoxGeometry(0.52, 0.24, 0.32)
-  const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
   const fanBodyMatrices = fanColors.map(() => [] as THREE.Matrix4[])
   const fanShoulderMatrices = fanColors.map(() => [] as THREE.Matrix4[])
+  const fanBodyColors = fanColors.map(() => [] as THREE.Color[])
   const fanHeadMatrices: THREE.Matrix4[] = []
+  const fanHeadColors: THREE.Color[] = []
   const fanTransform = new THREE.Object3D()
+  const shadeColor = new THREE.Color()
 
   const addFan = (x: number, y: number, z: number, colorIndex: number, facing = 0) => {
     const bodyIndex = fanBodyMatrices[colorIndex].length
@@ -843,12 +867,20 @@ export function rebuildCrowd() {
     fanTransform.updateMatrix()
     fanHeadMatrices.push(fanTransform.matrix.clone())
     fanTransform.scale.setScalar(1)
+    shadeColor.set(fanColors[colorIndex]).offsetHSL(0, 0, randomBetween(-0.1, 0.08))
+    fanBodyColors[colorIndex].push(shadeColor.clone())
+    fanHeadColors.push(new THREE.Color(pickSkinTone()))
     crowdMembers.push({ x, y, z, facing, phase: randomBetween(0, Math.PI * 2), scale, colorIndex, bodyIndex, headIndex })
   }
 
-  // About 14% of the bowl is away support. Independent picks avoid a visible
-  // repeating pattern while keeping Vikings purple dominant overall.
-  const crowdColor = () => Math.random() < 0.14 ? 1 : 0
+  // Roughly 60% home purple, 14% the chosen opponent's color, and the rest
+  // spread evenly across the neutral street-clothes palette.
+  const crowdColor = () => {
+    const roll = Math.random()
+    if (roll < 0.6) return 0
+    if (roll < 0.74) return 1
+    return 2 + Math.floor(Math.random() * neutralFanColors.length)
+  }
 
   for (const side of [-1, 1]) {
     for (let row = 0; row < 19; row += 1) {
@@ -870,24 +902,39 @@ export function rebuildCrowd() {
   }
 
   // Instancing keeps the packed stadium inexpensive to animate every frame.
-  const buildFanLayer = (buckets: THREE.Matrix4[][], geometry: THREE.BufferGeometry, target: THREE.InstancedMesh[], skin = false) => {
+  // Per-instance vertex color layers the shade/skin-tone variance on top of a
+  // single shared material per bucket, so the variety costs nothing extra to
+  // draw — the color goes on the same InstancedMesh, not a new one.
+  const buildFanLayer = (
+    buckets: THREE.Matrix4[][],
+    geometry: THREE.BufferGeometry,
+    target: THREE.InstancedMesh[],
+    palette: number[],
+    colors?: THREE.Color[][],
+  ) => {
     for (const [colorIndex, matrices] of buckets.entries()) {
-      const mesh = new THREE.InstancedMesh(
-        geometry,
-        skin ? skinMaterial : new THREE.MeshStandardMaterial({ color: fanColors[colorIndex], roughness: 0.8 }),
-        matrices.length,
-      )
-      matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix))
+      const material = new THREE.MeshStandardMaterial({ color: palette[colorIndex], roughness: 0.8, vertexColors: !!colors })
+      const mesh = new THREE.InstancedMesh(geometry, material, matrices.length)
+      matrices.forEach((matrix, index) => {
+        mesh.setMatrixAt(index, matrix)
+        if (colors) mesh.setColorAt(index, colors[colorIndex][index])
+      })
       mesh.instanceMatrix.needsUpdate = true
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
       crowdGroup!.add(mesh)
       target[colorIndex] = mesh
     }
   }
-  buildFanLayer(fanBodyMatrices, fanBodyGeometry, crowdBodyMeshes)
-  buildFanLayer(fanShoulderMatrices, fanShoulderGeometry, crowdShoulderMeshes)
-  const heads = new THREE.InstancedMesh(fanHeadGeometry, skinMaterial, fanHeadMatrices.length)
-  fanHeadMatrices.forEach((matrix, index) => heads.setMatrixAt(index, matrix))
+  buildFanLayer(fanBodyMatrices, fanBodyGeometry, crowdBodyMeshes, fanColors, fanBodyColors)
+  buildFanLayer(fanShoulderMatrices, fanShoulderGeometry, crowdShoulderMeshes, fanAccents)
+  const headMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, vertexColors: true })
+  const heads = new THREE.InstancedMesh(fanHeadGeometry, headMaterial, fanHeadMatrices.length)
+  fanHeadMatrices.forEach((matrix, index) => {
+    heads.setMatrixAt(index, matrix)
+    heads.setColorAt(index, fanHeadColors[index])
+  })
   heads.instanceMatrix.needsUpdate = true
+  if (heads.instanceColor) heads.instanceColor.needsUpdate = true
   crowdGroup.add(heads)
   crowdHead.mesh = heads
 }
@@ -895,14 +942,17 @@ export function rebuildCrowd() {
 export function createStadium() {
   const standColors = [0x17233b, 0x253654, 0x334b70]
   // A deep bowl of stands wraps the field; the front rows sit back far enough to
-  // leave a sideline apron for the benches.
+  // leave a sideline apron for the benches. Rows 6-7 break from the repeating
+  // gray tiers into a purple-and-gold facade band — the colored ring real
+  // stadiums use to separate the lower bowl from the upper deck.
+  const facadeRow = (row: number, fallback: number) => (row === 6 ? TEAMS.vikings.primary : row === 7 ? 0xf5c542 : fallback)
   for (const side of [-1, 1]) {
     for (let row = 0; row < 19; row += 1) {
       const x = side * (32 + row * 1.16)
       const y = 0.5 + row * 0.75
       const seats = new THREE.Mesh(
         new THREE.BoxGeometry(2.3, 1.2, 122),
-        new THREE.MeshStandardMaterial({ color: standColors[row % standColors.length], roughness: 0.82 }),
+        new THREE.MeshStandardMaterial({ color: facadeRow(row, standColors[row % standColors.length]), roughness: 0.82 }),
       )
       seats.position.set(x, y, -47)
       world.add(seats)
@@ -915,13 +965,40 @@ export function createStadium() {
       const y = 0.5 + row * 0.75
       const seats = new THREE.Mesh(
         new THREE.BoxGeometry(102, 1.18, 2.3),
-        new THREE.MeshStandardMaterial({ color: standColors[(row + 1) % standColors.length], roughness: 0.82 }),
+        new THREE.MeshStandardMaterial({ color: facadeRow(row, standColors[(row + 1) % standColors.length]), roughness: 0.82 }),
       )
       seats.position.set(0, y, z)
       world.add(seats)
     }
   }
   rebuildCrowd()
+
+  // A glowing LED ribbon board runs the length of the lower bowl's front
+  // fascia on all four sides — the modern stadium touch below the seats.
+  const ribbonMaterial = new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.4, roughness: 0.4 })
+  for (const side of [-1, 1]) {
+    const ribbon = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.32, 122), ribbonMaterial)
+    ribbon.position.set(side * 32, 0.16, -47)
+    world.add(ribbon)
+  }
+  for (const end of [1, -1]) {
+    const ribbon = new THREE.Mesh(new THREE.BoxGeometry(102, 0.32, 2.5), ribbonMaterial)
+    ribbon.position.set(0, 0.16, end === 1 ? 21 : -105)
+    world.add(ribbon)
+  }
+
+  // Two tunnel entrances cut into the lower bowl at midfield, one per
+  // sideline, where the teams would actually run out onto the field.
+  const tunnelDarkMaterial = new THREE.MeshStandardMaterial({ color: 0x05070c, roughness: 0.9 })
+  const tunnelFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.5, roughness: 0.5 })
+  for (const side of [-1, 1]) {
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 3, 6.4), tunnelFrameMaterial)
+    frame.position.set(side * 31.4, 1.5, -42)
+    world.add(frame)
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.4, 5.6), tunnelDarkMaterial)
+    mouth.position.set(side * 31.2, 1.2, -42)
+    world.add(mouth)
+  }
 
   const outerWallMaterial = new THREE.MeshStandardMaterial({ color: 0x111c30, roughness: 0.88 })
   for (const x of [-58, 58]) {
@@ -951,6 +1028,16 @@ export function createStadium() {
     const truss = new THREE.Mesh(new THREE.BoxGeometry(88, 0.32, 0.42), trussMaterial)
     truss.position.set(0, 24.95, z)
     world.add(truss)
+    // A short diagonal brace off every other main truss for a more built,
+    // trussed-roof look instead of a flat grid of straight bars.
+    if (((z + 105) / 16) % 2 === 0) {
+      for (const dx of [-22, 22]) {
+        const brace = new THREE.Mesh(new THREE.BoxGeometry(14, 0.24, 0.3), trussMaterial)
+        brace.position.set(dx, 23.7, z + 5)
+        brace.rotation.y = dx < 0 ? 0.35 : -0.35
+        world.add(brace)
+      }
+    }
   }
   for (let x = -38; x <= 38; x += 19) {
     const truss = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 126), trussMaterial)
@@ -958,21 +1045,7 @@ export function createStadium() {
     world.add(truss)
   }
 
-  const scoreboardBox = new THREE.Mesh(
-    new THREE.BoxGeometry(13, 6, 0.8),
-    new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.55 }),
-  )
-  scoreboardBox.position.set(0, 13, -110.5)
-  world.add(scoreboardBox)
-  scoreboard.canvas = document.createElement('canvas')
-  scoreboard.canvas.width = 512
-  scoreboard.canvas.height = 128
-  scoreboard.texture = new THREE.CanvasTexture(scoreboard.canvas)
-  const scoreboardText = new THREE.Sprite(new THREE.SpriteMaterial({ map: scoreboard.texture, transparent: true }))
-  scoreboardText.position.set(0, 13, -110)
-  scoreboardText.scale.set(12, 3, 1)
-  world.add(scoreboardText)
-  updateScoreboard()
+  createJumbotron()
 
   const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.7, roughness: 0.35 })
   const lampMaterial = new THREE.MeshStandardMaterial({ color: 0xfff7cc, emissive: 0xffd166, emissiveIntensity: 2.5 })
@@ -986,6 +1059,107 @@ export function createStadium() {
       world.add(lamp)
     }
   }
+}
+
+// The center-hung style video board every modern stadium has: a deep steel
+// frame slung off its own support struts, a big canvas-texture screen
+// showing the score bug (see updateScoreboard), and a slim scrolling sponsor
+// ticker underneath (see updateJumbotronTicker). Rim lights and hanging
+// speaker boxes round out the "big screen" read from out on the field.
+function createJumbotron() {
+  const z = -111.6
+  const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.55, metalness: 0.3 })
+  const trussMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.75, roughness: 0.35 })
+  const rimLightMaterial = new THREE.MeshStandardMaterial({ color: 0xfff3c4, emissive: 0xffcf4d, emissiveIntensity: 2.2 })
+
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(26, 12.5, 1.4), frameMaterial)
+  frame.position.set(0, 17, z)
+  world.add(frame)
+
+  // Support struts angling down to the back wall, behind the board.
+  for (const x of [-9, 9]) {
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 9, 8), trussMat)
+    strut.position.set(x, 22, z - 0.9)
+    strut.rotation.x = 0.42
+    world.add(strut)
+  }
+
+  // Everything below faces the field, so it has to sit in front of the
+  // frame's near face (toward the camera, at a *larger* z than the frame
+  // here — the field side is z > -111.6) or the frame itself would hide it.
+  // The frame is 1.4 deep, so its near face sits at z + 0.7.
+  const faceZ = z + 0.75
+
+  // Rim lights tracing the top and bottom of the bezel.
+  for (let i = 0; i < 14; i += 1) {
+    const t = i / 13
+    const lx = THREE.MathUtils.lerp(-12.4, 12.4, t)
+    for (const ly of [23.1, 10.9]) {
+      const light = new THREE.Mesh(new THREE.SphereGeometry(0.14, 6, 6), rimLightMaterial)
+      light.position.set(lx, ly, faceZ + 0.05)
+      world.add(light)
+    }
+  }
+
+  // Two hanging speaker boxes flanking the screen.
+  for (const x of [-14.5, 14.5]) {
+    const speaker = new THREE.Mesh(new THREE.BoxGeometry(1.6, 3.4, 1.6), frameMaterial)
+    speaker.position.set(x, 16.5, z)
+    world.add(speaker)
+    for (let row = 0; row < 4; row += 1) {
+      const grille = new THREE.Mesh(new THREE.CircleGeometry(0.32, 10), trussMat)
+      grille.position.set(x, 15.3 + row * 0.7, faceZ + 0.1)
+      world.add(grille)
+    }
+  }
+
+  // The main screen: the live score bug, drawn by updateScoreboard().
+  scoreboard.canvas = document.createElement('canvas')
+  scoreboard.canvas.width = 640
+  scoreboard.canvas.height = 256
+  scoreboard.texture = new THREE.CanvasTexture(scoreboard.canvas)
+  const screen = new THREE.Mesh(
+    new THREE.PlaneGeometry(23.6, 9.2),
+    new THREE.MeshBasicMaterial({ map: scoreboard.texture }),
+  )
+  screen.position.set(0, 17.6, faceZ)
+  world.add(screen)
+
+  // A slim scrolling sponsor ticker underneath the main screen.
+  jumbotronTicker.canvas = document.createElement('canvas')
+  jumbotronTicker.canvas.width = 1024
+  jumbotronTicker.canvas.height = 64
+  jumbotronTicker.texture = new THREE.CanvasTexture(jumbotronTicker.canvas)
+  jumbotronTicker.texture.wrapS = THREE.RepeatWrapping
+  jumbotronTicker.texture.repeat.set(3, 1)
+  const ticker = new THREE.Mesh(
+    new THREE.PlaneGeometry(23.6, 1.3),
+    new THREE.MeshBasicMaterial({ map: jumbotronTicker.texture }),
+  )
+  ticker.position.set(0, 11.9, faceZ)
+  world.add(ticker)
+  drawJumbotronTicker()
+
+  // "TOUCHDOWN RUSH STADIUM" wordmark riding on top of the frame — a wide
+  // dedicated canvas rather than labelSprite's small fixed square, since that
+  // long a string would overflow a 256px-wide canvas and get clipped.
+  const wordmarkCanvas = document.createElement('canvas')
+  wordmarkCanvas.width = 1024
+  wordmarkCanvas.height = 128
+  const wordmarkCtx = wordmarkCanvas.getContext('2d')!
+  wordmarkCtx.fillStyle = '#fbbf24'
+  wordmarkCtx.font = 'bold 74px Arial'
+  wordmarkCtx.textAlign = 'center'
+  wordmarkCtx.textBaseline = 'middle'
+  wordmarkCtx.fillText('TOUCHDOWN RUSH STADIUM', 512, 64)
+  const wordmark = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(wordmarkCanvas), transparent: true, depthWrite: false }),
+  )
+  wordmark.scale.set(17, 2.1, 1)
+  wordmark.position.set(0, 24.3, z)
+  world.add(wordmark)
+
+  updateScoreboard()
 }
 
 // The sky: a hazy sun low over the far end zone plus puffy clouds ringing the
@@ -1195,28 +1369,114 @@ export function createSidelines() {
 // — they're the home team regardless of who the opponent is.)
 export function applyOpponentTeam() {
   buildOpponentSideline()
+  drawJumbotronTicker()
 }
 
 // ---------------------------------------------------------------------------
 // Per-frame world updates
 // ---------------------------------------------------------------------------
 
+// Draws the jumbotron's sponsor ticker text once. It doesn't need to be
+// redrawn every frame — the scroll itself is a UV offset animated in
+// updateJumbotronTicker() — only when the message changes (a new opponent).
+export function drawJumbotronTicker() {
+  const c = jumbotronTicker.canvas
+  const texture = jumbotronTicker.texture
+  if (!c || !texture) return
+  const ctx = c.getContext('2d')!
+  ctx.clearRect(0, 0, c.width, c.height)
+  ctx.fillStyle = '#111827'
+  ctx.fillRect(0, 0, c.width, c.height)
+  ctx.fillStyle = '#fbbf24'
+  ctx.font = 'bold 40px Arial'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  const away = TEAMS[state.opponentTeam]
+  const message = `TOUCHDOWN RUSH   •   NFC NORTH SHOWDOWN   •   VIKINGS VS ${away.name}   •   `
+  ctx.fillText(message.repeat(2), 0, c.height / 2)
+  texture.needsUpdate = true
+}
+
+// Scrolls the sponsor ticker by nudging its texture's UV offset — cheap
+// enough to run every frame, unlike a canvas redraw.
+export function updateJumbotronTicker(delta: number) {
+  const texture = jumbotronTicker.texture
+  if (!texture) return
+  jumbotronTicker.offset = (jumbotronTicker.offset + delta * 0.05) % 1
+  texture.offset.x = jumbotronTicker.offset
+}
+
+// The jumbotron's main screen: a score bug with a color chip per team, the
+// clock, and (on offense) the down & distance — plus a soft vignette and a
+// blinking "LIVE" tag so it reads as a lit video panel, not a flat poster.
 export function updateScoreboard() {
   const sbCanvas = scoreboard.canvas
   const sbTexture = scoreboard.texture
   if (!sbCanvas || !sbTexture) return
   const ctx = sbCanvas.getContext('2d')!
-  ctx.clearRect(0, 0, 512, 128)
-  ctx.fillStyle = '#0b1220'
-  ctx.fillRect(0, 0, 512, 128)
-  ctx.fillStyle = '#fbbf24'
+  const w = sbCanvas.width
+  const h = sbCanvas.height
+  ctx.clearRect(0, 0, w, h)
+  const backdrop = ctx.createLinearGradient(0, 0, 0, h)
+  backdrop.addColorStop(0, '#111a2e')
+  backdrop.addColorStop(1, '#01030a')
+  ctx.fillStyle = backdrop
+  ctx.fillRect(0, 0, w, h)
+
+  const rowY = [h * 0.28, h * 0.28 + h * 0.27]
+  const away = TEAMS[state.opponentTeam]
+  const drawTeamRow = (team: TeamInfo, score: number, y: number) => {
+    ctx.beginPath()
+    ctx.arc(w * 0.13, y, h * 0.1, 0, Math.PI * 2)
+    ctx.fillStyle = cssHex(team.primary)
+    ctx.fill()
+    ctx.lineWidth = h * 0.02
+    ctx.strokeStyle = cssHex(team.accent)
+    ctx.stroke()
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = '#f8fafc'
+    ctx.font = `bold ${Math.round(h * 0.11)}px Arial`
+    ctx.fillText(team.name, w * 0.21, y)
+    ctx.textAlign = 'right'
+    ctx.fillStyle = '#fbbf24'
+    ctx.font = `bold ${Math.round(h * 0.13)}px Arial`
+    ctx.fillText(String(score), w * 0.93, y)
+  }
+  drawTeamRow(TEAMS.vikings, state.score, rowY[0])
+  drawTeamRow(away, state.opponentScore, rowY[1])
+
+  ctx.strokeStyle = 'rgba(226,232,240,0.22)'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(w * 0.06, (rowY[0] + rowY[1]) / 2)
+  ctx.lineTo(w * 0.94, (rowY[0] + rowY[1]) / 2)
+  ctx.stroke()
+
   ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.font = 'bold 44px Arial'
-  ctx.fillText(`VIKINGS ${state.score}   ${TEAMS[state.opponentTeam].name} ${state.opponentScore}`, 256, 42)
-  ctx.font = 'bold 30px Arial'
   ctx.fillStyle = '#e2e8f0'
-  ctx.fillText(`${state.quarter >= 5 ? 'OT' : ordinal(state.quarter)}   ${formatClock(state.gameClock)}`, 256, 92)
+  ctx.font = `bold ${Math.round(h * 0.1)}px Arial`
+  ctx.fillText(`${state.quarter >= 5 ? 'OT' : ordinal(state.quarter)}   ${formatClock(state.gameClock)}`, w / 2, h * 0.78)
+  ctx.font = `${Math.round(h * 0.065)}px Arial`
+  ctx.fillStyle = '#94a3b8'
+  const possessionLine = state.possession === 'offense'
+    ? `VIKINGS BALL • ${downAndDistance()}`
+    : `${away.abbr} BALL`
+  ctx.fillText(possessionLine, w / 2, h * 0.92)
+
+  // A small blinking "LIVE" tag in the top-left corner.
+  const blink = Math.sin(performance.now() * 0.006) > -0.2
+  if (blink) {
+    ctx.fillStyle = '#ef4444'
+    ctx.beginPath()
+    ctx.arc(w * 0.045, h * 0.08, h * 0.022, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#f8fafc'
+  ctx.font = `bold ${Math.round(h * 0.05)}px Arial`
+  ctx.fillText('LIVE', w * 0.07, h * 0.08)
+
   sbTexture.needsUpdate = true
 }
 

@@ -29,6 +29,7 @@ import {
   startAudio,
   updateCrowd,
   updateFireworks,
+  updateJumbotronTicker,
   view,
 } from './world.ts'
 import { createPlayerView, updateKickBlockers } from './entities.ts'
@@ -76,6 +77,7 @@ function frame(time: number) {
     if (cloud.position.x > 300) cloud.position.x -= 600
   }
   updateCrowd(time)
+  updateJumbotronTicker(delta)
   updateFireworks(delta)
   const showStamina = state.running && !state.gameOver && !state.throwing && !state.kickType
   staminaMeter.classList.toggle('is-hidden', !showStamina)
