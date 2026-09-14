@@ -60,7 +60,7 @@ import {
   yardsLabelEl,
 } from './core.ts'
 import type { DefenseCall, Defender, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
-import { applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, rebuildCrowd, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
+import { aimCamera, applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, rebuildCrowd, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
   buildDefense,
@@ -73,6 +73,13 @@ import {
   spawnKickBlockers,
 } from './entities.ts'
 import { addPoints, clockExpiryForQuarter, kickIsGood, kickSuccessChance, opponentYardAfterTurnover, puntNetYards } from './gameRules.ts'
+
+// The AI offense's play call for a defensive series: either a run (a lane to
+// attack and a ball carrier speed) or a pass (routes for three receivers, plus
+// how long the QB holds the ball before throwing).
+type OpponentCall =
+  | { kind: 'run'; name: string; lane: number; speed: number }
+  | { kind: 'pass'; name: string; routes: Array<[number, number, number, number]>; readTime: number }
 
 export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'punt' | null, newSeries = true) {
   if (state.gameOver) return
@@ -90,16 +97,22 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
     state.gameClock = Math.max(0, state.gameClock - INTER_PLAY_RUNOFF)
   }
   state.lastPlayStoppedClock = false
+  // The current down's line of scrimmage — refreshed on every snap, not just
+  // the start of a series, so it stays a correct fallback spot even on a play
+  // with no ball carrier yet (an incomplete pass, a sack).
+  state.defenseSnapZ = spotZ
   if (newSeries) {
-    state.defenseStartZ = spotZ
     state.defenseFirstDownZ = spotZ
     state.defenseDown = 1
   }
-  const opponentCalls = [
-    { name: 'Inside Run', lane: 0, speed: 13.2 },
-    { name: 'Sweep Right', lane: 14, speed: 14.1 },
-    { name: 'Sweep Left', lane: -14, speed: 14.1 },
-    { name: 'Draw Play', lane: randomBetween(-5, 5), speed: 12.5 },
+  const opponentCalls: OpponentCall[] = [
+    { kind: 'run', name: 'Inside Run', lane: 0, speed: 13.2 },
+    { kind: 'run', name: 'Sweep Right', lane: 14, speed: 14.1 },
+    { kind: 'run', name: 'Sweep Left', lane: -14, speed: 14.1 },
+    { kind: 'run', name: 'Draw Play', lane: randomBetween(-5, 5), speed: 12.5 },
+    { kind: 'pass', name: 'Quick Slant', routes: [[-14, -8, 4, 12], [0, 4, 14, 16], [14, 8, -3, 12]], readTime: 1.05 },
+    { kind: 'pass', name: 'Deep Shot', routes: [[-4, -8, 3, 34], [-18, -20, -22, 18], [18, 21, 23, 18]], readTime: 1.75 },
+    { kind: 'pass', name: 'Screen Pass', routes: [[-11, -13, -15, 2], [11, 14, 17, 3], [1, 2, 3, 9]], readTime: 0.9 },
   ]
   const opponentCall = opponentCalls[Math.floor(Math.random() * opponentCalls.length)]
   state.opponentPlay = opponentCall.name
@@ -110,20 +123,49 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
   state.carrierJukeVX = 0
   state.carrierJukeUntil = 0
   state.carrierNextJuke = 1
-  state.carrierLaneX = opponentCall.lane
+  state.carrierLaneX = opponentCall.kind === 'run' ? opponentCall.lane : 0
   state.bigPlayAllowed = true
+  state.ballCarrier = null
+  state.oppQB = null
+  state.oppPassPlayActive = false
+  state.oppThrown = false
+  state.oppPassTarget = null
   balls.player.visible = false
   balls.thrown.visible = false
 
-  // The opponent offense: a highlighted ball carrier plus blockers who wall
-  // you off, all in the chosen opponent's colors.
   const opponentTeam = TEAMS[state.opponentTeam]
-  for (let index = 0; index < 7; index += 1) {
-    const x = index === 0 ? randomBetween(-10, 10) : randomBetween(-16, 16)
-    const z = spotZ + (index === 0 ? 0 : 4 + index * 2.6)
-    const opponent = createDefender(x, z, index === 0 ? opponentTeam.accent : opponentTeam.primary, 10 + index, opponentTeam.id, index === 0)
-    opponent.speed = index === 0 ? opponentCall.speed : 11
-    if (index === 0) state.ballCarrier = opponent
+  if (opponentCall.kind === 'run') {
+    // The opponent offense: a highlighted ball carrier plus blockers who wall
+    // you off, all in the chosen opponent's colors.
+    for (let index = 0; index < 7; index += 1) {
+      const x = index === 0 ? randomBetween(-10, 10) : randomBetween(-16, 16)
+      const z = spotZ + (index === 0 ? 0 : 4 + index * 2.6)
+      const opponent = createDefender(x, z, index === 0 ? opponentTeam.accent : opponentTeam.primary, 10 + index, opponentTeam.id, index === 0)
+      opponent.speed = index === 0 ? opponentCall.speed : 11
+      if (index === 0) state.ballCarrier = opponent
+    }
+  } else {
+    // A pass play: a QB who holds the ball for a read, three receivers who run
+    // routes downfield, and three linemen who hold the pocket.
+    const qb = createDefender(0, spotZ - 1, opponentTeam.accent, 10, opponentTeam.id, true)
+    qb.speed = 0
+    qb.isQB = true
+    state.oppQB = qb
+    opponentCall.routes.forEach(([startX, breakX, targetX, routeDepth], index) => {
+      const r = createDefender(startX, spotZ, opponentTeam.primary, 11 + index, opponentTeam.id)
+      r.isReceiver = true
+      r.startX = startX
+      r.breakX = breakX
+      r.targetX = targetX
+      r.routeDepth = routeDepth
+      r.speed = 13
+    })
+    for (const [index, x] of [-4, 0, 4].entries()) {
+      const lineman = createDefender(x, spotZ - 2, opponentTeam.primary, 70 + index, opponentTeam.id)
+      lineman.speed = 0
+    }
+    state.oppPassPlayActive = true
+    state.oppThrowAt = opponentCall.readTime
   }
   // Your pursuit help, spread across the field a few yards ahead of you.
   for (let index = 0; index < 4; index += 1) {
@@ -687,12 +729,17 @@ function resolveTwoPoint(scored: boolean) {
   afterPatResolved()
 }
 
-export function finishDefensivePlay(tackled: boolean) {
+// Ends a defensive down that stayed a dead ball at some spot: a run tackle by
+// default, but also reused for a sack or an incomplete/broken-up pass by
+// passing an explicit spot and label instead of reading state.ballCarrier.
+export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; label?: string; allowFumble?: boolean }) {
   state.running = false
   if (tackled) {
-    const spotZ = state.ballCarrier?.z ?? state.defenseFirstDownZ
+    const spotZ = opts?.spotZ ?? state.ballCarrier?.z ?? state.defenseFirstDownZ
+    const label = opts?.label ?? 'TACKLE!'
+    const allowFumble = opts?.allowFumble ?? true
     // Punch it out: a takeaway that hands the ball straight to your offense.
-    if (Math.random() < 0.05) {
+    if (allowFumble && Math.random() < 0.05) {
       state.lastPlayStoppedClock = true
       statusText.textContent = `FORCED FUMBLE — takeaway! Your offense has it on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
@@ -703,7 +750,7 @@ export function finishDefensivePlay(tackled: boolean) {
     if (earnedFirstDown) {
       state.defenseDown = 1
       state.defenseFirstDownZ = spotZ
-      statusText.textContent = `TACKLE! Opponent moved the chains — 1st & 10 on the ${describeSpot(ballOnFromZ(spotZ))}.`
+      statusText.textContent = `${label} Opponent moved the chains — 1st & 10 on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
       schedule(() => startDefensiveSeries(spotZ, null, false), 1200)
       return
@@ -711,7 +758,7 @@ export function finishDefensivePlay(tackled: boolean) {
     state.defenseDown += 1
     if (state.defenseDown <= 4) {
       const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
-      statusText.textContent = `TACKLE! Opponent faces ${ordinal(state.defenseDown)} & ${togo} on the ${describeSpot(ballOnFromZ(spotZ))}.`
+      statusText.textContent = `${label} Opponent faces ${ordinal(state.defenseDown)} & ${togo} on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
       schedule(() => startDefensiveSeries(spotZ, null, false), 1200)
       return
@@ -725,6 +772,30 @@ export function finishDefensivePlay(tackled: boolean) {
   const patGood = Math.random() < 0.94
   if (patGood) state.opponentScore = addPoints(state.opponentScore, 1)
   statusText.textContent = `OPPONENT TOUCHDOWN — extra point ${patGood ? 'good' : 'no good'}. They lead ${state.opponentScore}-${state.score}.`
+  updateHud()
+  if (state.quarter >= 5) {
+    schedule(endGame, 1600)
+    return
+  }
+  schedule(() => kickoff('offense'), 1500)
+}
+
+// An interception: the play is dead on the spot and possession flips straight
+// to your offense, same as a fumble recovery.
+export function interceptPass(spotZ: number) {
+  state.running = false
+  state.lastPlayStoppedClock = true
+  statusText.textContent = `INTERCEPTED! Your offense takes over on the ${describeSpot(ballOnFromZ(spotZ))}.`
+  updateHud()
+  schedule(() => resetDrive(spotZ), 1400)
+}
+
+// A sack that drives the QB back into his own end zone — the NFL rule: the
+// defense scores 2, and the team that gave it up has to free-kick it away.
+export function defensiveSafety() {
+  state.running = false
+  state.score = addPoints(state.score, 2)
+  statusText.textContent = `SAFETY! You sacked the QB in the end zone — you lead ${state.score}-${state.opponentScore}.`
   updateHud()
   if (state.quarter >= 5) {
     schedule(endGame, 1600)
@@ -820,16 +891,16 @@ function snapDefense(call: DefenseCall) {
   state.stamina = 1
   state.gassed = false
   // Freeze the marker at the pre-snap spot for the duration of the play.
-  const snapZ = state.ballCarrier?.z ?? state.defenseStartZ
+  const snapZ = state.ballCarrier?.z ?? state.defenseSnapZ
   const snapTogo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - snapZ))
   state.snapDownText = `${ordinal(Math.min(state.defenseDown, 4))} & ${snapTogo}`
   state.snapYardsText = describeSpot(ballOnFromZ(snapZ))
-  const cfg: Record<DefenseCall, { radius: number; teamSpeed: number; carrierMul: number }> = {
-    base: { radius: 1.7, teamSpeed: 13, carrierMul: 1 },
-    blitz: { radius: 1.9, teamSpeed: 14.5, carrierMul: 1.12 },
-    cover2: { radius: 1.6, teamSpeed: 12, carrierMul: 0.9 },
-    goalline: { radius: 2.3, teamSpeed: 14, carrierMul: 0.95 },
-    spy: { radius: 1.8, teamSpeed: 13, carrierMul: 1 },
+  const cfg: Record<DefenseCall, { radius: number; teamSpeed: number; carrierMul: number; blitzers: number }> = {
+    base: { radius: 1.7, teamSpeed: 13, carrierMul: 1, blitzers: 0 },
+    blitz: { radius: 1.9, teamSpeed: 14.5, carrierMul: 1.12, blitzers: 2 },
+    cover2: { radius: 1.6, teamSpeed: 12, carrierMul: 0.9, blitzers: 0 },
+    goalline: { radius: 2.3, teamSpeed: 14, carrierMul: 0.95, blitzers: 1 },
+    spy: { radius: 1.8, teamSpeed: 13, carrierMul: 1, blitzers: 1 },
   }
   const c = cfg[call]
   state.defTackleRadius = c.radius
@@ -838,8 +909,50 @@ function snapDefense(call: DefenseCall) {
     teammate.speed = c.teamSpeed
     teammate.role = call === 'spy' && index === 0 ? 'spy' : 'man'
   })
-  statusText.textContent = `${DEFENSE_PLAYBOOK.find((d) => d.id === call)?.name} versus ${state.opponentPlay} — meet the runner and make the tackle!`
+  // On a pass play, assign each teammate to man-cover a receiver — except the
+  // defensive call's blitzers, who rush the passer instead (coverIndex -1).
+  if (state.oppPassPlayActive) {
+    const receiverCount = Math.max(1, defenders.filter((d) => d.isReceiver).length)
+    teammates.forEach((teammate, index) => {
+      teammate.coverIndex = index < c.blitzers ? -1 : (index - c.blitzers) % receiverCount
+    })
+  }
+  statusText.textContent = `${DEFENSE_PLAYBOOK.find((d) => d.id === call)?.name} versus ${state.opponentPlay} — ${
+    state.oppPassPlayActive ? 'cover your man and watch for the throw!' : 'meet the runner and make the tackle!'
+  }`
   updateHud()
+}
+
+// Switch control to whichever of your teammates is nearest the action (the
+// ball carrier, the pass target, or the QB before the snap) — like tapping the
+// player-switch button in an NFL game. The teammate you leave behind picks up
+// right where you were standing and keeps pursuing as AI.
+export function switchDefender() {
+  if (state.gameOver || state.possession !== 'defense' || !state.running || teammates.length === 0) return
+  const focus = state.ballCarrier ?? state.oppPassTarget ?? state.oppQB
+  const targetX = focus?.x ?? state.playerX
+  const targetZ = focus?.z ?? state.cameraZ
+  let bestIndex = 0
+  let bestDist = Infinity
+  teammates.forEach((teammate, index) => {
+    const dist = Math.hypot(teammate.x - targetX, teammate.z - targetZ)
+    if (dist < bestDist) {
+      bestDist = dist
+      bestIndex = index
+    }
+  })
+  const chosen = teammates[bestIndex]
+  const prevX = state.playerX
+  const prevZ = state.cameraZ
+  state.playerX = chosen.x
+  state.cameraZ = chosen.z
+  camera.position.set(state.playerX, EYE_HEIGHT, state.cameraZ)
+  aimCamera()
+  playerView.position.x = 0
+  chosen.x = prevX
+  chosen.z = prevZ
+  chosen.mesh.position.set(prevX, 0, prevZ)
+  statusText.textContent = 'Switched to the nearest defender!'
 }
 
 export function startPlay(play: PlayId) {
@@ -943,7 +1056,7 @@ export function updateHud() {
     return
   }
   if (state.possession === 'defense') {
-    const carrierZ = state.ballCarrier?.z ?? state.defenseStartZ
+    const carrierZ = state.ballCarrier?.z ?? state.defenseSnapZ
     const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - carrierZ))
     yardsLabelEl.textContent = 'Opp ball on'
     yardsEl.textContent = describeSpot(ballOnFromZ(carrierZ))

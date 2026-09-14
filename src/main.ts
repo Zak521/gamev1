@@ -39,6 +39,7 @@ import {
   renderPlayOptions,
   resolveKick,
   startKick,
+  switchDefender,
   throwAway,
   tickClocks,
   updateHud,
@@ -117,6 +118,11 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.key.toLowerCase() === 'q' && state.running && !state.throwing && state.possession === 'offense') {
     throwAway()
+    event.preventDefault()
+    return
+  }
+  if (event.key.toLowerCase() === 'q' && state.running && state.possession === 'defense') {
+    switchDefender()
     event.preventDefault()
     return
   }

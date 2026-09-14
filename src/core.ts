@@ -48,6 +48,14 @@ export type Defender = {
   homeX: number
   stumbleUntil: number
   blockedUntil: number
+  // Opponent pass-play personnel (see startDefensiveSeries / updateOpponentPass):
+  // the quarterback holding for a throw, or a receiver running a route.
+  isQB?: boolean
+  isReceiver?: boolean
+  startX?: number
+  breakX?: number
+  targetX?: number
+  routeDepth?: number
 }
 
 export type Lineman = {
@@ -326,7 +334,7 @@ app.innerHTML = `
     </div>
     <div class="controls-panel">
       <div class="instructions">
-        <span>Move: WASD or Arrow keys</span><span>Look: mouse (click field)</span><span>Sprint: Shift or Space (burns stamina)</span><span>Goal: reach the end zone</span>
+        <span>Move: WASD or Arrow keys</span><span>Look: mouse (click field)</span><span>Sprint: Shift or Space (burns stamina)</span><span>On defense: Q switches to the nearest defender</span><span>Goal: reach the end zone</span>
       </div>
       <div class="touch-controls">
         <button type="button" data-move="left">Left</button><button type="button" data-move="right">Right</button><button type="button" data-move="sprint">Sprint</button>
@@ -416,10 +424,21 @@ export const state = {
   defenseCall: 'base' as DefenseCall,
   defTackleRadius: 1.7,
   defCarrierSpeedMul: 1,
-  defenseStartZ: 0,
+  // The current down's line of scrimmage while you're on defense — refreshed on
+  // every snap (not just the start of the series), so it stays a reliable
+  // fallback spot for plays with no ball carrier yet, like an incomplete pass.
+  defenseSnapZ: 0,
   defenseFirstDownZ: 0,
   defenseDown: 1,
   ballCarrier: null as Defender | null,
+  // Opponent pass plays: a QB who holds for a read, then throws to a receiver.
+  oppQB: null as Defender | null,
+  oppPassPlayActive: false,
+  oppThrown: false,
+  oppThrowAt: 0,
+  oppPassTime: 0,
+  oppPassTarget: null as Defender | null,
+  passContestedOpp: false,
   quarter: 1,
   gameClock: QUARTER_SECONDS,
   playClock: PLAY_CLOCK_SECONDS,

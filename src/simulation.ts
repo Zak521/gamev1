@@ -3,6 +3,7 @@ import {
   EYE_HEIGHT,
   MOVE_SCALE,
   OPPONENT_END_ZONE_BACK_Z,
+  OPPONENT_GOAL_LINE_Z,
   USER_END_ZONE_BACK_Z,
   USER_GOAL_LINE_Z,
   ballOnFromZ,
@@ -21,10 +22,12 @@ import type { Defender, Receiver } from './core.ts'
 import { aimCamera, camera, playCatch, playFootstep, playThrow, playerView, world } from './world.ts'
 import { balls } from './entities.ts'
 import {
+  defensiveSafety,
   finishDefensivePlay,
   finishRunPlay,
   gainTo,
   giveBallToOpponent,
+  interceptPass,
   offensiveMenu,
   sack,
   turnOverOnDowns,
@@ -326,6 +329,154 @@ export function updateGame(delta: number) {
   updateHud()
 }
 
+const oppPassStart = new THREE.Vector3()
+
+// Move every opponent receiver along its route: a break at 35% through, then
+// a straight line to the target, mirroring updateReceivers but running the
+// opposite direction (toward the user's goal line, out of state.defenseSnapZ).
+function updateOppRoutes() {
+  for (const r of defenders) {
+    if (!r.isReceiver) continue
+    const dur = (r.routeDepth ?? 15) > 22 ? 2.6 : 1.5
+    const routeProgress = Math.min(1, state.playTime / dur)
+    const x = routeProgress < 0.35
+      ? THREE.MathUtils.lerp(r.startX!, r.breakX!, routeProgress / 0.35)
+      : THREE.MathUtils.lerp(r.breakX!, r.targetX!, (routeProgress - 0.35) / 0.65)
+    const depth = Math.min(r.routeDepth!, 6 + state.playTime * 9)
+    r.x = x
+    r.z = state.defenseSnapZ + depth
+    r.mesh.position.set(r.x, Math.abs(Math.sin(performance.now() * 0.012 + r.runPhase)) * 0.08, r.z)
+  }
+}
+
+// Your AI teammates either man-cover their assigned receiver (coverIndex) or,
+// if the defensive call sent them on a blitz, rush the QB (coverIndex -1).
+function updateOppCoverage(delta: number) {
+  const receiversArr = defenders.filter((d) => d.isReceiver)
+  const qb = state.oppQB
+  for (const t of teammates) {
+    if (t.coverIndex === -1 && qb) {
+      pursueTarget(t, qb.x, qb.z, 0, 0, delta)
+    } else {
+      const target = receiversArr[t.coverIndex]
+      if (target) pursueTarget(t, target.x, target.z - 1.2, 0, 0, delta)
+    }
+    t.mesh.position.set(t.x, Math.abs(Math.sin(performance.now() * 0.013 + t.runPhase)) * 0.08, t.z)
+  }
+}
+
+// The AI QB picks whichever receiver projects the most open at the moment the
+// ball would arrive, given where you and your teammates are right now.
+function throwOpponentPass() {
+  const qb = state.oppQB
+  const receiversArr = defenders.filter((d) => d.isReceiver)
+  if (!qb || receiversArr.length === 0) return
+  state.oppThrown = true
+  state.oppPassTime = 0
+  const flightTime = 0.7
+  const pursuers = [{ x: state.playerX, z: state.cameraZ }, ...teammates]
+  let best = receiversArr[0]
+  let bestOpenness = -Infinity
+  for (const r of receiversArr) {
+    let separation = Infinity
+    for (const p of pursuers) {
+      const projX = p.x + Math.sign(r.x - p.x) * 12 * flightTime * 0.6
+      const projZ = p.z + Math.sign(r.z - p.z) * 12 * flightTime * 0.6
+      separation = Math.min(separation, Math.hypot(r.x - projX, r.z - projZ))
+    }
+    if (separation > bestOpenness) {
+      bestOpenness = separation
+      best = r
+    }
+  }
+  state.oppPassTarget = best
+  state.passContestedOpp = bestOpenness < 2.2
+  oppPassStart.set(qb.x, 1.9, qb.z + 0.4)
+  balls.thrown.visible = true
+  balls.thrown.position.copy(oppPassStart)
+  playThrow()
+  statusText.textContent = state.passContestedOpp
+    ? 'Opponent throws into tight coverage!'
+    : 'Opponent throws it downfield — watch the ball!'
+}
+
+// Settle the pass once the ball lands: nearer coverage from you or a teammate
+// makes an interception or a broken-up pass more likely; wide open, it's an
+// almost-sure catch. Returns true once the receiver becomes the live ball
+// carrier, so the caller can fall straight into the run-after-catch pursuit.
+function resolveOpponentPass(): boolean {
+  const receiver = state.oppPassTarget
+  balls.thrown.visible = false
+  state.oppThrown = false
+  state.oppPassPlayActive = false
+  if (!receiver) return false
+  const pursuers = [{ x: state.playerX, z: state.cameraZ }, ...teammates]
+  let separation = Infinity
+  for (const p of pursuers) separation = Math.min(separation, Math.hypot(p.x - receiver.x, p.z - receiver.z))
+  const interceptChance = separation < 1.6 ? 0.3 : separation < 3 ? 0.08 : 0.015
+  const breakupChance = separation < 1.6 ? 0.42 : separation < 3 ? 0.24 : 0.04
+  const roll = Math.random()
+  if (roll < interceptChance) {
+    interceptPass(receiver.z)
+    return false
+  }
+  if (roll < interceptChance + breakupChance) {
+    finishDefensivePlay(true, { spotZ: state.defenseSnapZ, label: 'PASS DEFENSED!', allowFumble: false })
+    return false
+  }
+  receiver.isReceiver = false
+  state.ballCarrier = receiver
+  state.carrierLaneX = receiver.x
+  playCatch()
+  statusText.textContent = 'Complete! Bring him down!'
+  return true
+}
+
+// Drives the whole pre-snap-to-catch arc of an opponent pass play: routes,
+// coverage, the QB's read-then-throw, and the ball's flight. Returns true
+// while the play is still unresolved this frame (the caller should skip the
+// ball-carrier pursuit logic below); false once a completion hands off a live
+// ball carrier, so pursuit can continue in the same frame.
+function updateOpponentPass(delta: number): boolean {
+  const qb = state.oppQB
+  updateOppRoutes()
+  updateOppCoverage(delta)
+  if (qb) {
+    qb.z = state.defenseSnapZ - Math.min(2.4, state.playTime * 5)
+    qb.mesh.position.set(qb.x, 0, qb.z)
+  }
+  if (!state.oppThrown) {
+    if (qb && state.playTime > 0.55) {
+      const pursuers = [{ x: state.playerX, z: state.cameraZ }, ...teammates]
+      for (const p of pursuers) {
+        if (Math.hypot(p.x - qb.x, p.z - qb.z) < state.defTackleRadius + 0.3) {
+          const spotZ = qb.z
+          state.oppPassPlayActive = false
+          if (spotZ <= OPPONENT_GOAL_LINE_Z + 0.5) {
+            defensiveSafety()
+          } else {
+            finishDefensivePlay(true, { spotZ, label: 'SACK!' })
+          }
+          return true
+        }
+      }
+    }
+    if (state.playTime >= state.oppThrowAt) throwOpponentPass()
+    return true
+  }
+  state.oppPassTime += delta
+  const flightTime = 0.7
+  const progress = Math.min(1, state.oppPassTime / flightTime)
+  const receiver = state.oppPassTarget
+  if (!receiver) return true
+  const destination = new THREE.Vector3(receiver.x, 1.5, receiver.z)
+  balls.thrown.position.lerpVectors(oppPassStart, destination, progress)
+  balls.thrown.position.y += Math.sin(progress * Math.PI) * 4
+  balls.thrown.rotation.x += delta * 20
+  if (progress < 1) return true
+  return !resolveOpponentPass()
+}
+
 function updateDefense(delta: number) {
   state.playTime += delta
   // On defense you face the offense, so forward takes you into the gap toward the runner.
@@ -347,6 +498,14 @@ function updateDefense(delta: number) {
   if ((direction !== 0 || depthDirection !== 0) && state.footstepTimer <= 0) {
     playFootstep()
     state.footstepTimer = state.sprinting ? 0.2 : 0.3
+  }
+
+  if (state.oppPassPlayActive) {
+    const stillPending = updateOpponentPass(delta)
+    if (stillPending) {
+      updateHud()
+      return
+    }
   }
 
   const carrier = state.ballCarrier
