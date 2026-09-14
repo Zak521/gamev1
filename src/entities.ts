@@ -423,6 +423,8 @@ export function buildReceivers(play: PassPlayId) {
     mesh: [[-16, -2, 14, 7], [16, 2, -14, 8], [2, 4, 6, 15]],
     paPost: [[-4, -8, 3, 42], [-18, -20, -22, 20], [18, 21, 23, 22]],
     screen: [[-11, -13, -15, -2], [11, 14, 17, 4], [1, 2, 3, 13]],
+    outs: [[-8, -9, -22, 14], [8, 9, 22, 14], [0, 0, -13, 8]],
+    digs: [[-18, -17, 8, 16], [18, 17, -8, 16], [0, 1, 2, 22]],
   }
   routes[play].forEach(([startX, breakX, targetX, routeDepth], index) => createReceiver(startX, breakX, targetX, routeDepth, index + 1))
 }

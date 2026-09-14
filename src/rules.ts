@@ -992,15 +992,15 @@ export function startPlay(play: PlayId) {
   if (runId) {
     while (receivers.length) world.remove(receivers.pop()!.mesh)
     // Each run differs by where you start and how long before you can accelerate.
-    const startX: Record<RunPlayId, number> = { iso: 0, offtackle: 5, toss: 12, draw: 0 }
-    const delay: Record<RunPlayId, number> = { iso: 0, offtackle: 0.2, toss: 0.4, draw: 0.7 }
+    const startX: Record<RunPlayId, number> = { iso: 0, offtackle: 5, toss: 12, draw: 0, counter: -5, stretch: 8 }
+    const delay: Record<RunPlayId, number> = { iso: 0, offtackle: 0.2, toss: 0.4, draw: 0.7, counter: 0.5, stretch: 0.25 }
     state.playerX = startX[play]
     state.runDelay = delay[play]
   } else {
     state.runDelay = 0
     buildReceivers(play)
   }
-  assignPassProtection(runId, play === 'paPost' || play === 'draw')
+  assignPassProtection(runId, play === 'paPost' || play === 'draw' || play === 'digs')
   playCall.classList.add('is-hidden')
   const label = OFFENSE_PLAYBOOK.find((p) => p.id === play)?.name ?? 'Play'
   statusText.textContent = runId

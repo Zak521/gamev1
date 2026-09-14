@@ -90,8 +90,8 @@ export type CrowdMember = {
   headIndex: number
 }
 
-export type PassPlayId = 'slant' | 'verticals' | 'flood' | 'mesh' | 'paPost' | 'screen'
-export type RunPlayId = 'iso' | 'offtackle' | 'toss' | 'draw'
+export type PassPlayId = 'slant' | 'verticals' | 'flood' | 'mesh' | 'paPost' | 'screen' | 'outs' | 'digs'
+export type RunPlayId = 'iso' | 'offtackle' | 'toss' | 'draw' | 'counter' | 'stretch'
 export type SpecialPlayId = 'fieldGoal' | 'punt' | 'kneel'
 export type PlayId = PassPlayId | RunPlayId | SpecialPlayId
 export type PlayTab = 'pass' | 'run' | 'special'
@@ -111,10 +111,14 @@ export const OFFENSE_PLAYBOOK: OffensivePlay[] = [
   { id: 'mesh', name: 'Mesh', blurb: 'Rub crossers underneath', tab: 'pass' },
   { id: 'paPost', name: 'PA Post', blurb: 'Play-action deep shot', tab: 'pass' },
   { id: 'screen', name: 'Y-Screen', blurb: 'Screen behind the line', tab: 'pass' },
+  { id: 'outs', name: 'Sideline Outs', blurb: 'Quick breaks to both sidelines', tab: 'pass' },
+  { id: 'digs', name: 'Deep Digs', blurb: 'In-breaking routes past the linebackers', tab: 'pass' },
   { id: 'iso', name: 'Inside Zone', blurb: 'Downhill between the tackles', tab: 'run' },
   { id: 'offtackle', name: 'Off Tackle', blurb: 'Pull a guard, hit the edge', tab: 'run' },
   { id: 'toss', name: 'Toss Sweep', blurb: 'Get outside in a hurry', tab: 'run' },
   { id: 'draw', name: 'QB Draw', blurb: 'Sell the pass, then run', tab: 'run' },
+  { id: 'counter', name: 'Counter', blurb: 'Misdirection, then hit the backside', tab: 'run' },
+  { id: 'stretch', name: 'Outside Zone', blurb: 'Stretch it wide, then cut upfield', tab: 'run' },
   { id: 'fieldGoal', name: 'Field Goal', blurb: 'Kick for 3 — better odds up close', tab: 'special' },
   { id: 'punt', name: 'Punt', blurb: 'Flip the field on 4th down', tab: 'special' },
   { id: 'kneel', name: 'Victory Kneel', blurb: 'Burn ~40s, lose a yard', tab: 'special' },
@@ -128,7 +132,7 @@ export const DEFENSE_PLAYBOOK: Array<{ id: DefenseCall; name: string; blurb: str
   { id: 'spy', name: 'QB Spy', blurb: 'Mirror the runner, rally to the ball' },
 ]
 
-const RUN_IDS: readonly RunPlayId[] = ['iso', 'offtackle', 'toss', 'draw']
+const RUN_IDS: readonly RunPlayId[] = ['iso', 'offtackle', 'toss', 'draw', 'counter', 'stretch']
 export const isRunId = (id: PlayId | null): id is RunPlayId => !!id && (RUN_IDS as readonly string[]).includes(id)
 
 export { END_ZONE_DEPTH, USER_TWENTY_Z } from './gameMath.ts'
