@@ -29,9 +29,10 @@ import {
   startAudio,
   updateCrowd,
   updateFireworks,
+  updateJumbotronTicker,
   view,
 } from './world.ts'
-import { createPlayerView } from './entities.ts'
+import { createPlayerView, updateKickBlockers } from './entities.ts'
 import {
   goForTwo,
   openTeamSelect,
@@ -39,6 +40,7 @@ import {
   renderPlayOptions,
   resolveKick,
   startKick,
+  switchDefender,
   throwAway,
   tickClocks,
   updateHud,
@@ -68,12 +70,14 @@ function frame(time: number) {
     kickFill.style.width = `${state.kickPower}%`
   }
   if (state.kickFlight) updateKickFlight(delta)
+  if (state.kickType || state.kickFlight) updateKickBlockers(delta)
   updateGame(delta)
   for (const cloud of clouds) {
     cloud.position.x += cloud.userData.drift * delta
     if (cloud.position.x > 300) cloud.position.x -= 600
   }
   updateCrowd(time)
+  updateJumbotronTicker(delta)
   updateFireworks(delta)
   const showStamina = state.running && !state.gameOver && !state.throwing && !state.kickType
   staminaMeter.classList.toggle('is-hidden', !showStamina)
@@ -116,6 +120,11 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.key.toLowerCase() === 'q' && state.running && !state.throwing && state.possession === 'offense') {
     throwAway()
+    event.preventDefault()
+    return
+  }
+  if (event.key.toLowerCase() === 'q' && state.running && state.possession === 'defense') {
+    switchDefender()
     event.preventDefault()
     return
   }

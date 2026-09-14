@@ -22,11 +22,30 @@ export function addPoints(score: number, points: number) {
 }
 
 export function kickSuccessChance(type: 'fieldGoal' | 'extraPoint', distance: number, power: number) {
-  const timing = 1 - Math.min(1, Math.abs(power - 54) / 22)
-  const distanceChance = type === 'extraPoint' ? 0.99 : Math.min(0.99, Math.max(0.2, 1.16 - (distance - 20) * 0.011))
-  return distanceChance * (0.5 + timing * 0.5)
+  // Wide timing window — anywhere near the sweet spot counts as a good hit —
+  // and a high floor so even a mistimed press still has a real shot.
+  const timing = 1 - Math.min(1, Math.abs(power - 54) / 34)
+  // Chip shots are nearly automatic, mid-range kicks fall off gently, and
+  // anything past a real NFL kicker's range (60+) gets steep fast — a 70-yarder
+  // should be all but impossible, not a coin flip.
+  const distanceChance = type === 'extraPoint'
+    ? 0.99
+    : distance <= 40
+      ? Math.min(0.99, 1.05 - (distance - 20) * 0.005)
+      : distance <= 60
+        ? 0.95 - (distance - 40) * 0.0225
+        : Math.max(0, 0.5 - (distance - 60) * 0.05)
+  return distanceChance * (0.7 + timing * 0.3)
 }
 
 export function kickIsGood(chance: number, roll: number) {
   return roll < chance
+}
+
+// Net punt yardage from the same timing meter used for field goals — a kick
+// caught right on the sweet spot (power 54) drives it deep; a badly mistimed
+// one dies short. Random hang/coverage variance is layered on by the caller.
+export function puntNetYards(power: number) {
+  const timing = 1 - Math.min(1, Math.abs(power - 54) / 34)
+  return 32 + timing * 20
 }

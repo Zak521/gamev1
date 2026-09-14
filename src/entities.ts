@@ -1,7 +1,7 @@
 import * as THREE from 'three'
-import { TEAMS, defenders, linemen, randomBetween, receivers, state, teammates } from './core.ts'
+import { TEAMS, defenders, kickBlockers, linemen, pickSkinTone, randomBetween, receivers, state, teammates } from './core.ts'
 import type { Defender, PassPlayId, TeamId } from './core.ts'
-import { camera, helmetDecal, jerseyNameplate, labelSprite, playerView, world } from './world.ts'
+import { addFace, camera, groundShadow, helmetDecal, jerseyNameplate, labelSprite, playerView, world } from './world.ts'
 import { UNIFORM_KITS, addKitLegStripe, addKitSleeveHoops, addKitYoke } from './kits.ts'
 
 // The first-person footballs, created inside createPlayerView(). Declared here so
@@ -10,6 +10,44 @@ import { UNIFORM_KITS, addKitLegStripe, addKitSleeveHoops, addKitYoke } from './
 export const balls = {
   player: null as unknown as THREE.Mesh,
   thrown: null as unknown as THREE.Mesh,
+}
+
+// One leg built as a thigh + knee + shin instead of a single stiff pole, with
+// the thigh sitting back a touch and the shin toeing forward so there's a
+// readable knee. Spans the same vertical extent the old single cylinder did
+// (centre `centerY`, height `totalLen`), so shoes, socks and pant stripes still
+// line up.
+function jointedLeg(
+  group: THREE.Group,
+  legX: number,
+  centerY: number,
+  totalLen: number,
+  rTop: number,
+  rBot: number,
+  pants: THREE.Material,
+  pad: THREE.Material,
+) {
+  const hipY = centerY + totalLen / 2
+  const ankleY = centerY - totalLen / 2
+  const kneeY = centerY + totalLen * 0.05
+  const thigh = new THREE.Mesh(new THREE.CylinderGeometry(rTop * 0.9, rTop, hipY - kneeY, 8), pants)
+  thigh.position.set(legX, (hipY + kneeY) / 2, -0.03)
+  group.add(thigh)
+  const shin = new THREE.Mesh(new THREE.CylinderGeometry(rBot * 1.15, rBot, kneeY - ankleY, 8), pants)
+  shin.position.set(legX, (kneeY + ankleY) / 2, 0.05)
+  group.add(shin)
+  const knee = new THREE.Mesh(new THREE.SphereGeometry(rTop * 1.04, 10, 8), pad)
+  knee.scale.set(1, 0.8, 0.9)
+  knee.position.set(legX, kneeY, 0.05)
+  group.add(knee)
+}
+
+// A small joint sphere where an upper arm meets a forearm, so elbows bend
+// instead of the arm being one snapped stick.
+function elbow(group: THREE.Group, x: number, y: number, z: number, r: number, mat: THREE.Material) {
+  const joint = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), mat)
+  joint.position.set(x, y, z)
+  group.add(joint)
 }
 
 export function createDefender(x: number, z: number, color: number, number: number, teamId: TeamId, hasFootball = false, bucket: Defender[] = defenders) {
@@ -92,9 +130,7 @@ export function createDefender(x: number, z: number, color: number, number: numb
     group.add(facemaskSupport)
   }
   for (const legX of [-0.32, 0.32]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 1.1, 8), pantsMaterial)
-    leg.position.set(legX, 0.42, 0)
-    group.add(leg)
+    jointedLeg(group, legX, 0.42, 1.1, 0.16, 0.13, pantsMaterial, padMaterial)
     if (kit) {
       // A wide stripe with a thin contrast centre, down the outside of each leg.
       const [wideColor, centreColor] = kit.pantStripe
@@ -108,13 +144,13 @@ export function createDefender(x: number, z: number, color: number, number: numb
         group.add(centreStripe)
       }
     }
-    const kneePad = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), padMaterial)
-    kneePad.scale.set(1, 0.7, 0.55)
-    kneePad.position.set(legX, 0.42, 0.17)
-    group.add(kneePad)
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.62), dark)
     shoe.position.set(legX, 0.06, 0.16)
     group.add(shoe)
+    // A low heel wedge so the cleat isn't a plain slab.
+    const heel = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.22), dark)
+    heel.position.set(legX, 0.02, 0.02)
+    group.add(heel)
     if (kit?.socks) {
       // A coloured sock pulled over the lower leg, with a stripe near the top.
       const [sockColor, sockStripe] = kit.socks
@@ -126,10 +162,15 @@ export function createDefender(x: number, z: number, color: number, number: numb
       group.add(sockBand)
     }
   }
-  const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const skinMaterial = new THREE.MeshStandardMaterial({ color: pickSkinTone(), roughness: 0.85 })
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.21, 0.26, 8), skinMaterial)
   neck.position.y = 2.05
   group.add(neck)
+  addFace(group, { skin: skinMaterial, radius: 0.48, y: 2.45 })
+  // A belt where the jersey tucks into the pants.
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.16, 0.72), new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.7 }))
+  belt.position.y = 0.5
+  group.add(belt)
   // Arms: a short jersey sleeve over a bare forearm, ending in a gloved hand.
   for (const armSide of [-0.72, 0.72]) {
     const inward = armSide < 0 ? -1 : 1
@@ -150,10 +191,16 @@ export function createDefender(x: number, z: number, color: number, number: numb
         sleeve.add(ring)
       }
     }
+    elbow(group, armSide + inward * 0.08, 1.22, 0.03, 0.145, skinMaterial)
     const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.12, 0.68, 8), skinMaterial)
     forearm.position.set(armSide + inward * 0.14, 0.95, 0.05)
     forearm.rotation.z = -inward * 0.12
     group.add(forearm)
+    // A taped wristband above the glove.
+    const wristband = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.135, 0.12, 10), new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.8 }))
+    wristband.position.set(armSide + inward * 0.19, 0.68, 0.07)
+    wristband.rotation.z = -inward * 0.12
+    group.add(wristband)
     const glove = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), padMaterial)
     glove.position.set(armSide + inward * 0.2, 0.6, 0.08)
     group.add(glove)
@@ -182,6 +229,7 @@ export function createDefender(x: number, z: number, color: number, number: numb
     ;(ballLabel.material as THREE.SpriteMaterial).depthTest = false
     group.add(ballLabel)
   }
+  group.add(groundShadow(1))
   group.position.set(x, 0, z)
   world.add(group)
   const defender: Defender = {
@@ -212,7 +260,7 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.35, 0.58), uniform)
   torso.position.y = 1.12
   group.add(torso)
-  const skin = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const skin = new THREE.MeshStandardMaterial({ color: pickSkinTone(), roughness: 0.85 })
   const shoulderPads = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 8), dark)
   shoulderPads.scale.set(1, 0.32, 0.6)
   shoulderPads.position.y = 1.72
@@ -230,18 +278,20 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   facemask.rotation.z = Math.PI / 2
   facemask.position.set(0, 1.93, 0.34)
   group.add(facemask)
+  addFace(group, { skin, radius: 0.38, y: 2.05 })
   const nameplate = jerseyNameplate('vikings')
   nameplate.position.set(0, 1.42, 0.31)
   nameplate.scale.set(1.5, 0.4, 1)
   group.add(nameplate)
   for (const legX of [-0.22, 0.22]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.9, 7), pantsMaterial)
-    leg.position.set(legX, 0.38, 0)
-    group.add(leg)
+    jointedLeg(group, legX, 0.38, 0.9, 0.13, 0.1, pantsMaterial, dark)
     addKitLegStripe(group, kit, legX + (legX < 0 ? -0.11 : 0.11), 0.42, 0.78)
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.13, 0.5), dark)
     shoe.position.set(legX, 0.05, 0.14)
     group.add(shoe)
+    const heel = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.07, 0.18), dark)
+    heel.position.set(legX, 0.02, 0.01)
+    group.add(heel)
   }
   for (const armX of [-0.52, 0.52]) {
     const inward = armX < 0 ? -1 : 1
@@ -250,6 +300,7 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
     arm.rotation.z = -inward * 0.32
     group.add(arm)
     addKitSleeveHoops(arm, kit, -0.15, 0.115)
+    elbow(group, armX + inward * 0.07, 1.29, 0, 0.1, skin)
     const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.5, 7), skin)
     forearm.position.set(armX + inward * 0.14, 1.06, 0)
     forearm.rotation.z = -inward * 0.16
@@ -278,6 +329,7 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   label.position.set(0, 3.05, 0)
   label.scale.set(0.8, 0.42, 1)
   group.add(label)
+  group.add(groundShadow(0.8))
   group.position.set(x, 0, state.cameraZ - 8)
   world.add(group)
   receivers.push({ mesh: group, target: marker, heldFootball, startX: x, breakX, targetX, startZ: group.position.z, routeDepth, routePhase: randomBetween(0, Math.PI * 2) })
@@ -299,7 +351,7 @@ export function createLineman(x: number, z: number, number: number) {
   pads.position.y = 1.92
   group.add(pads)
   addKitYoke(group, kit, { width: 1.5, depth: 0.96, bandY: 2.0, lineY: 1.9, collarR: 0.24, collarY: 2.02 })
-  const skin = new THREE.MeshStandardMaterial({ color: 0xf0b48a, roughness: 0.85 })
+  const skin = new THREE.MeshStandardMaterial({ color: pickSkinTone(), roughness: 0.85 })
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.24, 8), skin)
   neck.position.y = 2.02
   group.add(neck)
@@ -308,6 +360,7 @@ export function createLineman(x: number, z: number, number: number) {
   helmet.position.y = 2.4
   group.add(helmet)
   group.add(helmetDecal('vikings', 0.5, 2.4))
+  addFace(group, { skin, radius: 0.48, y: 2.4 })
   const facemask = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.58, 8), facemaskMaterial)
   facemask.rotation.z = Math.PI / 2
   facemask.position.set(0, 2.26, 0.44)
@@ -320,6 +373,7 @@ export function createLineman(x: number, z: number, number: number) {
     sleeve.rotation.z = -inward * 0.3
     group.add(sleeve)
     addKitSleeveHoops(sleeve, kit, -0.22, 0.205)
+    elbow(group, armX + inward * 0.09, 1.18, 0.08, 0.18, skin)
     const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.15, 0.62, 8), skin)
     forearm.position.set(armX + inward * 0.16, 0.94, 0.16)
     forearm.rotation.z = -inward * 0.18
@@ -329,19 +383,25 @@ export function createLineman(x: number, z: number, number: number) {
     glove.position.set(armX + inward * 0.24, 0.64, 0.4)
     group.add(glove)
   }
+  // A belt at the waist where the jersey meets the pants.
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.16, 0.86), new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.7 }))
+  belt.position.y = 0.52
+  group.add(belt)
   for (const legX of [-0.34, 0.34]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 1.05, 8), pantsMaterial)
-    leg.position.set(legX, 0.44, 0)
-    group.add(leg)
+    jointedLeg(group, legX, 0.44, 1.05, 0.17, 0.14, pantsMaterial, dark)
     addKitLegStripe(group, kit, legX + (legX < 0 ? -0.16 : 0.16), 0.5, 0.9)
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.56), dark)
     shoe.position.set(legX, 0.06, 0.16)
     group.add(shoe)
+    const heel = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.2), dark)
+    heel.position.set(legX, 0.02, 0.02)
+    group.add(heel)
   }
   const label = labelSprite(String(number), '#fef08a')
   label.position.set(0, 1.3, -0.5)
   label.scale.set(0.72, 0.38, 1)
   group.add(label)
+  group.add(groundShadow(1))
   group.position.set(x, 0, z)
   world.add(group)
   linemen.push({ mesh: group, startX: x, startZ: z, blockPhase: randomBetween(0, Math.PI * 2), assignment: null })
@@ -363,14 +423,17 @@ export function buildReceivers(play: PassPlayId) {
     mesh: [[-16, -2, 14, 7], [16, 2, -14, 8], [2, 4, 6, 15]],
     paPost: [[-4, -8, 3, 42], [-18, -20, -22, 20], [18, 21, 23, 22]],
     screen: [[-11, -13, -15, -2], [11, 14, 17, 4], [1, 2, 3, 13]],
+    outs: [[-8, -9, -22, 14], [8, 9, 22, 14], [0, 0, -13, 8]],
+    digs: [[-18, -17, 8, 16], [18, 17, -8, 16], [0, 1, 2, 22]],
   }
   routes[play].forEach(([startX, breakX, targetX, routeDepth], index) => createReceiver(startX, breakX, targetX, routeDepth, index + 1))
 }
 
 export function createPlayerView() {
-  const armMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b48a })
+  const armMaterial = new THREE.MeshStandardMaterial({ color: pickSkinTone() })
   const jersey = new THREE.MeshStandardMaterial({ color: TEAMS.vikings.primary })
   const cuffGold = new THREE.MeshStandardMaterial({ color: UNIFORM_KITS.vikings!.band, roughness: 0.5 })
+  const gloveMaterial = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 })
   for (const side of [-1, 1]) {
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.4, 10), armMaterial)
     arm.position.set(side * 0.62, -1.18, -1.75)
@@ -384,6 +447,15 @@ export function createPlayerView() {
     const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.09, 0.5), cuffGold)
     cuff.position.set(side * 0.7, -0.8, -1.65)
     playerView.add(cuff)
+    // A taped wrist and a gloved hand gripping in toward the ball.
+    const wristTape = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.16, 10), new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.85 }))
+    wristTape.position.set(side * 0.52, -1.72, -1.78)
+    wristTape.rotation.z = side * 0.35
+    playerView.add(wristTape)
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), gloveMaterial)
+    hand.scale.set(1, 0.82, 1.1)
+    hand.position.set(side * 0.42, -1.9, -1.78)
+    playerView.add(hand)
   }
 
   balls.player = new THREE.Mesh(
@@ -444,4 +516,70 @@ export function clearPlayers() {
   while (linemen.length) world.remove(linemen.pop()!.mesh)
   while (receivers.length) world.remove(receivers.pop()!.mesh)
   while (teammates.length) world.remove(teammates.pop()!.mesh)
+  clearKickBlockers()
+}
+
+// ---------------------------------------------------------------------------
+// Field-goal / extra-point block unit
+//
+// On any placekick the opponent puts a rush on the field, just like the NFL:
+// a six-man interior wall a yard off the ball plus two edge rushers off the
+// tackles, all facing the holder. They stand crouched pre-snap, then on the
+// kick they crash forward and the interior men leap with their arms up. The
+// actual make/miss is still decided by the timing meter in resolveKick(); this
+// is the visual, and it backs the small "blocked" chance rolled there.
+// ---------------------------------------------------------------------------
+
+type BlockerAnim = { mesh: THREE.Group; startX: number; startZ: number; leap: number; phase: number; rush: number }
+const blockerAnims: BlockerAnim[] = []
+
+export function clearKickBlockers() {
+  while (kickBlockers.length) world.remove(kickBlockers.pop()!.mesh)
+  blockerAnims.length = 0
+}
+
+export function spawnKickBlockers(los: number) {
+  clearKickBlockers()
+  const opponent = TEAMS[state.opponentTeam]
+  // [x offset, extra depth]: the interior wall sits square on the line, the two
+  // edge rushers start a touch wider and deeper so they loop in.
+  const spots: Array<[number, number]> = [
+    [-8.6, 0], [-5.2, 0], [-1.8, 0], [1.8, 0], [5.2, 0], [8.6, 0],
+    [-12.6, 1.6], [12.6, 1.6],
+  ]
+  spots.forEach(([x, back], i) => {
+    const z = los - 6.5 - back
+    const d = createDefender(x, z, opponent.primary, 61 + i, opponent.id, false, kickBlockers)
+    d.mesh.rotation.y = Math.PI // face back toward the holder
+    blockerAnims.push({
+      mesh: d.mesh,
+      startX: x,
+      startZ: z,
+      leap: 1 - Math.min(0.85, Math.abs(x) / 13),
+      phase: randomBetween(0, Math.PI * 2),
+      rush: 0,
+    })
+  })
+}
+
+export function updateKickBlockers(delta: number) {
+  const rushing = !!state.kickFlight
+  for (const b of blockerAnims) {
+    if (rushing) b.rush = Math.min(1, b.rush + delta * 2.6)
+    if (b.rush <= 0) {
+      // Set: crouched on the line, rocking on the balls of the feet.
+      b.mesh.position.set(b.startX, Math.abs(Math.sin(performance.now() * 0.006 + b.phase)) * 0.05, b.startZ)
+      b.mesh.rotation.x = -0.12
+      continue
+    }
+    // Smoothstep the surge off the line toward the holder's spot; edge men
+    // pinch in as they come.
+    const ease = b.rush * b.rush * (3 - 2 * b.rush)
+    b.mesh.position.x = b.startX * (1 - 0.45 * ease)
+    b.mesh.position.z = b.startZ + 4.8 * ease
+    // Leap: up early in the surge, arms and chest thrown at the ball, then down.
+    const leap = Math.sin(Math.min(1, b.rush * 1.25) * Math.PI) * b.leap
+    b.mesh.position.y = leap * 1.15
+    b.mesh.rotation.x = -0.12 - leap * 0.5
+  }
 }

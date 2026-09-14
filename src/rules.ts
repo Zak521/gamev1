@@ -60,19 +60,28 @@ import {
   yardsLabelEl,
 } from './core.ts'
 import type { DefenseCall, Defender, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
-import { applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, rebuildCrowd, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
+import { aimCamera, applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, rebuildCrowd, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
   buildDefense,
   buildOffensiveLine,
   buildReceivers,
+  clearKickBlockers,
   clearPlayers,
   createDefender,
   createLineman,
+  spawnKickBlockers,
 } from './entities.ts'
-import { addPoints, clockExpiryForQuarter, kickIsGood, kickSuccessChance, opponentYardAfterTurnover } from './gameRules.ts'
+import { addPoints, clockExpiryForQuarter, kickIsGood, kickSuccessChance, opponentYardAfterTurnover, puntNetYards } from './gameRules.ts'
 
-export function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSeries = true) {
+// The AI offense's play call for a defensive series: either a run (a lane to
+// attack and a ball carrier speed) or a pass (routes for three receivers, plus
+// how long the QB holds the ball before throwing).
+type OpponentCall =
+  | { kind: 'run'; name: string; lane: number; speed: number }
+  | { kind: 'pass'; name: string; routes: Array<[number, number, number, number]>; readTime: number }
+
+export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'punt' | null, newSeries = true) {
   if (state.gameOver) return
   releaseMouse()
   clearPlayers()
@@ -88,16 +97,22 @@ export function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSerie
     state.gameClock = Math.max(0, state.gameClock - INTER_PLAY_RUNOFF)
   }
   state.lastPlayStoppedClock = false
+  // The current down's line of scrimmage — refreshed on every snap, not just
+  // the start of a series, so it stays a correct fallback spot even on a play
+  // with no ball carrier yet (an incomplete pass, a sack).
+  state.defenseSnapZ = spotZ
   if (newSeries) {
-    state.defenseStartZ = spotZ
     state.defenseFirstDownZ = spotZ
     state.defenseDown = 1
   }
-  const opponentCalls = [
-    { name: 'Inside Run', lane: 0, speed: 13.2 },
-    { name: 'Sweep Right', lane: 14, speed: 14.1 },
-    { name: 'Sweep Left', lane: -14, speed: 14.1 },
-    { name: 'Draw Play', lane: randomBetween(-5, 5), speed: 12.5 },
+  const opponentCalls: OpponentCall[] = [
+    { kind: 'run', name: 'Inside Run', lane: 0, speed: 13.2 },
+    { kind: 'run', name: 'Sweep Right', lane: 14, speed: 14.1 },
+    { kind: 'run', name: 'Sweep Left', lane: -14, speed: 14.1 },
+    { kind: 'run', name: 'Draw Play', lane: randomBetween(-5, 5), speed: 12.5 },
+    { kind: 'pass', name: 'Quick Slant', routes: [[-14, -8, 4, 12], [0, 4, 14, 16], [14, 8, -3, 12]], readTime: 1.05 },
+    { kind: 'pass', name: 'Deep Shot', routes: [[-4, -8, 3, 34], [-18, -20, -22, 18], [18, 21, 23, 18]], readTime: 1.75 },
+    { kind: 'pass', name: 'Screen Pass', routes: [[-11, -13, -15, 2], [11, 14, 17, 3], [1, 2, 3, 9]], readTime: 0.9 },
   ]
   const opponentCall = opponentCalls[Math.floor(Math.random() * opponentCalls.length)]
   state.opponentPlay = opponentCall.name
@@ -108,20 +123,49 @@ export function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSerie
   state.carrierJukeVX = 0
   state.carrierJukeUntil = 0
   state.carrierNextJuke = 1
-  state.carrierLaneX = opponentCall.lane
+  state.carrierLaneX = opponentCall.kind === 'run' ? opponentCall.lane : 0
   state.bigPlayAllowed = true
+  state.ballCarrier = null
+  state.oppQB = null
+  state.oppPassPlayActive = false
+  state.oppThrown = false
+  state.oppPassTarget = null
   balls.player.visible = false
   balls.thrown.visible = false
 
-  // The opponent offense: a highlighted ball carrier plus blockers who wall
-  // you off, all in the chosen opponent's colors.
   const opponentTeam = TEAMS[state.opponentTeam]
-  for (let index = 0; index < 7; index += 1) {
-    const x = index === 0 ? randomBetween(-10, 10) : randomBetween(-16, 16)
-    const z = spotZ + (index === 0 ? 0 : 4 + index * 2.6)
-    const opponent = createDefender(x, z, index === 0 ? opponentTeam.accent : opponentTeam.primary, 10 + index, opponentTeam.id, index === 0)
-    opponent.speed = index === 0 ? opponentCall.speed : 11
-    if (index === 0) state.ballCarrier = opponent
+  if (opponentCall.kind === 'run') {
+    // The opponent offense: a highlighted ball carrier plus blockers who wall
+    // you off, all in the chosen opponent's colors.
+    for (let index = 0; index < 7; index += 1) {
+      const x = index === 0 ? randomBetween(-10, 10) : randomBetween(-16, 16)
+      const z = spotZ + (index === 0 ? 0 : 4 + index * 2.6)
+      const opponent = createDefender(x, z, index === 0 ? opponentTeam.accent : opponentTeam.primary, 10 + index, opponentTeam.id, index === 0)
+      opponent.speed = index === 0 ? opponentCall.speed : 11
+      if (index === 0) state.ballCarrier = opponent
+    }
+  } else {
+    // A pass play: a QB who holds the ball for a read, three receivers who run
+    // routes downfield, and three linemen who hold the pocket.
+    const qb = createDefender(0, spotZ - 1, opponentTeam.accent, 10, opponentTeam.id, true)
+    qb.speed = 0
+    qb.isQB = true
+    state.oppQB = qb
+    opponentCall.routes.forEach(([startX, breakX, targetX, routeDepth], index) => {
+      const r = createDefender(startX, spotZ, opponentTeam.primary, 11 + index, opponentTeam.id)
+      r.isReceiver = true
+      r.startX = startX
+      r.breakX = breakX
+      r.targetX = targetX
+      r.routeDepth = routeDepth
+      r.speed = 13
+    })
+    for (const [index, x] of [-4, 0, 4].entries()) {
+      const lineman = createDefender(x, spotZ - 2, opponentTeam.primary, 70 + index, opponentTeam.id)
+      lineman.speed = 0
+    }
+    state.oppPassPlayActive = true
+    state.oppThrowAt = opponentCall.readTime
   }
   // Your pursuit help, spread across the field a few yards ahead of you.
   for (let index = 0; index < 4; index += 1) {
@@ -138,8 +182,9 @@ export function startDefensiveSeries(spotZ: number, isKickoff: boolean, newSerie
   defenseKicker.textContent = newSeries
     ? `Opponent chose ${state.opponentPlay} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
     : `Opponent chose ${state.opponentPlay} · ${ordinal(state.defenseDown)} & ${togo}`
-  statusText.textContent = isKickoff
-    ? `Kickoff return: opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
+  const returnLabel = returnKind === 'kickoff' ? 'Kickoff return' : returnKind === 'punt' ? 'Punt return' : null
+  statusText.textContent = returnLabel
+    ? `${returnLabel}: opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
     : `Opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
   renderDefenseOptions()
   defenseCall.classList.remove('is-hidden')
@@ -162,7 +207,7 @@ function kickoff(receiving: 'offense' | 'defense') {
   if (receiving === 'offense') {
     resetDrive(losZ(25))
   } else {
-    startDefensiveSeries(defensiveSpotZ(25), true)
+    startDefensiveSeries(defensiveSpotZ(25), 'kickoff')
   }
 }
 
@@ -258,6 +303,7 @@ export function startGame() {
   state.twoPointActive = false
   state.kickType = null
   state.kickFlight = null
+  clearKickBlockers()
   state.stamina = 1
   state.gassed = false
   kickMeter.classList.add('is-hidden')
@@ -376,8 +422,9 @@ function safety() {
 }
 
 // Hand the ball to the opponent (played as your defensive series) at a spot given
-// as the opponent's own yard line (1-99 from their goal).
-export function giveBallToOpponent(oppYard: number, message: string) {
+// as the opponent's own yard line (1-99 from their goal). Pass 'punt' as
+// returnKind to dramatize the handoff as a live return instead of a dead spot.
+export function giveBallToOpponent(oppYard: number, message: string, returnKind: 'kickoff' | 'punt' | null = null) {
   // An interception or fumble on a two-point try just fails the try — no return.
   if (state.twoPointActive) {
     resolveTwoPoint(false)
@@ -389,7 +436,7 @@ export function giveBallToOpponent(oppYard: number, message: string) {
   statusText.textContent = message
   updateHud()
   const spot = defensiveSpotZ(THREE.MathUtils.clamp(Math.round(oppYard), 1, 99))
-  schedule(() => startDefensiveSeries(spot, false), 1500)
+  schedule(() => startDefensiveSeries(spot, returnKind), 1500)
 }
 
 function attemptFieldGoal() {
@@ -405,9 +452,10 @@ export function startKick(type: KickType, distance: number) {
   state.kickDistance = distance
   state.kickPower = 0
   state.kickFlight = null
-  // After a touchdown, spot the extra-point attempt at the 2-yard line.
+  // After a touchdown, spot the extra-point snap at the 15-yard line — the NFL
+  // moved it back there in 2015, turning the PAT into a ~33-yard kick.
   if (type === 'extraPoint') {
-    state.ballOn = 98
+    state.ballOn = 85
     state.cameraZ = losZ(state.ballOn)
   }
   keys.sprint = false
@@ -424,47 +472,93 @@ export function startKick(type: KickType, distance: number) {
   }
   // A second purple player beside the holder makes the extra-point unit feel set.
   createLineman(2.8, state.cameraZ - 2.8, 88)
+  // The opponent's block unit lines up across the ball and rushes the kick.
+  spawnKickBlockers(state.cameraZ)
   balls.player.visible = true
   balls.thrown.visible = false
-  kickPrompt.textContent = `${type === 'extraPoint' ? 'Extra point' : `${distance}-yard field goal`} — press Space to kick`
+  const label = type === 'extraPoint' ? 'Extra point' : type === 'punt' ? 'Punt' : `${distance}-yard field goal`
+  kickPrompt.textContent = `${label} — press Space to kick`
   kickFill.style.width = '0%'
   kickMeter.classList.remove('is-hidden')
-  statusText.textContent = `Line up the ${type === 'extraPoint' ? 'extra point' : 'field goal'} — time the meter!`
+  statusText.textContent = `Line up the ${label.toLowerCase()} — time the meter!`
 }
 
 export function resolveKick() {
   const type = state.kickType
   if (!type || state.kickFlight) return
+  state.kickType = null
+  kickMeter.classList.add('is-hidden')
+  if (type === 'punt') {
+    resolvePunt()
+    return
+  }
   const distance = state.kickDistance
   // Forgiving timing window and a gentler distance falloff — a well-timed kick
   // inside ~45 yards is nearly automatic, and even a mistimed one has a chance.
-  const made = kickIsGood(kickSuccessChance(type, distance, state.kickPower), Math.random())
-  state.kickType = null
-  kickMeter.classList.add('is-hidden')
+  let made = kickIsGood(kickSuccessChance(type, distance, state.kickPower), Math.random())
+  // The block unit gets a hand on the ball once in a while — rarely on a PAT,
+  // more often the longer (and flatter) the field goal. A blocked kick is dead.
+  const blockChance = type === 'extraPoint' ? 0.03 : THREE.MathUtils.clamp((distance - 25) * 0.004, 0.02, 0.12)
+  const blocked = Math.random() < blockChance
+  if (blocked) made = false
 
   // Send the ball on a visible arc toward the uprights; the outcome is settled
-  // once it lands (see updateKickFlight / settleKick).
+  // once it lands (see updateKickFlight / settleKick). A blocked kick knuckles
+  // low into the rush a few yards past the line instead.
   const goalZ = OPPONENT_GOAL_LINE_Z - 10
   const from = new THREE.Vector3(0, 0.35, state.cameraZ - 1.4)
-  const wide = made ? randomBetween(-1.1, 1.1) : (Math.random() < 0.5 ? -1 : 1) * randomBetween(6.5, 11)
-  const shortBy = made ? 0 : (Math.random() < 0.35 ? randomBetween(10, 22) : 0)
-  const to = new THREE.Vector3(wide, made ? 9 : shortBy ? 2.5 : 8.4, goalZ + shortBy)
-  const apex = Math.max(from.y, to.y) + THREE.MathUtils.clamp(distance * 0.14, 5, 11)
-  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
-  state.kickFlight = {
-    t: 0,
-    dur: THREE.MathUtils.clamp(distance * 0.028, 1, 2),
-    from,
-    ctrl,
-    to,
-    type,
-    distance,
-    made,
+  let to: THREE.Vector3
+  let apex: number
+  let dur: number
+  if (blocked) {
+    to = new THREE.Vector3((Math.random() < 0.5 ? -1 : 1) * randomBetween(1.5, 4.5), 1, state.cameraZ - 8.5)
+    apex = 2.6
+    dur = 0.5
+  } else {
+    // The uprights sit at x = ±9.25 (see createGoalPost in world.ts) — a missed
+    // kick has to clear that width, or it visually sails through the posts
+    // while still being scored a miss, which reads as a bug, not a bad kick.
+    const wide = made ? randomBetween(-1.1, 1.1) : (Math.random() < 0.5 ? -1 : 1) * randomBetween(9.8, 14)
+    const shortBy = made ? 0 : (Math.random() < 0.35 ? randomBetween(10, 22) : 0)
+    to = new THREE.Vector3(wide, made ? 9 : shortBy ? 2.5 : 8.4, goalZ + shortBy)
+    apex = Math.max(from.y, to.y) + THREE.MathUtils.clamp(distance * 0.14, 5, 11)
+    dur = THREE.MathUtils.clamp(distance * 0.028, 1, 2)
   }
+  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
+  state.kickFlight = { t: 0, dur, from, ctrl, to, type, distance, made, blocked }
   balls.player.visible = false
   balls.thrown.visible = true
   balls.thrown.position.copy(from)
   statusText.textContent = 'The kick is up…'
+}
+
+function resolvePunt() {
+  // Punt blocks are rare — the rush mostly just applies pressure to the timing.
+  const blocked = Math.random() < 0.02
+  const from = new THREE.Vector3(0, 0.35, state.cameraZ - 1.4)
+  let to: THREE.Vector3
+  let apex: number
+  let dur: number
+  let netYards = 0
+  if (blocked) {
+    to = new THREE.Vector3((Math.random() < 0.5 ? -1 : 1) * randomBetween(1.5, 4.5), 1, state.cameraZ - 8.5)
+    apex = 2.6
+    dur = 0.5
+  } else {
+    // Same timing meter as a field goal — a kick right on the sweet spot
+    // (power 54) drives it deep downfield instead of through the uprights.
+    netYards = Math.max(15, Math.round(puntNetYards(state.kickPower) + randomBetween(-5, 5)))
+    const landingYard = Math.min(100, state.ballOn + netYards)
+    to = new THREE.Vector3(randomBetween(-3, 3), 0.4, losZ(landingYard))
+    apex = THREE.MathUtils.clamp(netYards * 0.35, 9, 20)
+    dur = THREE.MathUtils.clamp(netYards * 0.045, 1.6, 3.2)
+  }
+  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
+  state.kickFlight = { t: 0, dur, from, ctrl, to, type: 'punt', distance: netYards, made: !blocked, blocked }
+  balls.player.visible = false
+  balls.thrown.visible = true
+  balls.thrown.position.copy(from)
+  statusText.textContent = 'The punt is up…'
 }
 
 export function updateKickFlight(delta: number) {
@@ -484,17 +578,23 @@ export function updateKickFlight(delta: number) {
     balls.thrown.visible = false
     const done = k
     state.kickFlight = null
-    settleKick(done.type, done.distance, done.made)
+    settleKick(done.type, done.distance, done.made, done.blocked)
   }
 }
 
-function settleKick(type: KickType, distance: number, made: boolean) {
+function settleKick(type: KickType, distance: number, made: boolean, blocked = false) {
+  // The rush has done its job either way — clear it off the field.
+  clearKickBlockers()
+  if (type === 'punt') {
+    settlePunt(distance, blocked)
+    return
+  }
   if (type === 'extraPoint') {
     if (made) {
       state.score = addPoints(state.score, 1)
       statusText.textContent = `EXTRA POINT IS GOOD. You lead ${state.score}-${state.opponentScore}.`
     } else {
-      statusText.textContent = 'Extra point is NO GOOD.'
+      statusText.textContent = blocked ? 'The extra point is BLOCKED — no good!' : 'Extra point is NO GOOD.'
     }
     afterPatResolved()
     return
@@ -510,21 +610,33 @@ function settleKick(type: KickType, distance: number, made: boolean) {
     schedule(() => kickoff('defense'), 1500)
     return
   }
-  // Missed: opponent takes over at the spot of the hold, but no closer than their 20.
+  // Missed or blocked: opponent takes over at the spot of the hold, but no
+  // closer than their 20.
   const oppYard = Math.max(20, 108 - state.ballOn)
-  giveBallToOpponent(oppYard, `${distance}-yard field goal is NO GOOD. Opponent takes over.`)
+  giveBallToOpponent(oppYard, blocked
+    ? `The ${distance}-yard field goal is BLOCKED! Opponent takes over.`
+    : `${distance}-yard field goal is NO GOOD. Opponent takes over.`)
 }
 
-function puntBall() {
+function attemptPunt() {
   state.running = false
   playCall.classList.add('is-hidden')
-  const net = Math.round(randomBetween(38, 48))
-  const landing = state.ballOn + net
-  if (landing >= 100) {
-    giveBallToOpponent(20, `${net}-yard punt into the end zone — touchback. Opponent ball on their 20.`)
+  startKick('punt', 0)
+}
+
+function settlePunt(netYards: number, blocked: boolean) {
+  if (blocked) {
+    // Blocked right at the line of scrimmage — the return team recovers it
+    // almost exactly where it was kicked from.
+    giveBallToOpponent(opponentYardAfterTurnover(state.ballOn), 'The punt is BLOCKED! Opponent recovers the ball.')
     return
   }
-  giveBallToOpponent(100 - landing, `${net}-yard punt. Opponent ball on the ${describeSpot(landing)}.`)
+  const landingYard = Math.min(100, state.ballOn + netYards)
+  if (landingYard >= 100) {
+    giveBallToOpponent(20, `${netYards}-yard punt into the end zone — touchback. Opponent ball on their 20.`)
+    return
+  }
+  giveBallToOpponent(100 - landingYard, `${netYards}-yard punt to the ${describeSpot(landingYard)} — it's being returned!`, 'punt')
 }
 
 function kneelDown() {
@@ -542,7 +654,7 @@ export function turnOverOnDowns() {
   const oppYard = opponentYardAfterTurnover(state.ballOn)
   statusText.textContent = 'TURNOVER ON DOWNS — get ready to play defense!'
   updateHud()
-  schedule(() => startDefensiveSeries(defensiveSpotZ(oppYard), false), 1200)
+  schedule(() => startDefensiveSeries(defensiveSpotZ(oppYard), null), 1200)
 }
 
 function scoreTouchdown() {
@@ -617,12 +729,17 @@ function resolveTwoPoint(scored: boolean) {
   afterPatResolved()
 }
 
-export function finishDefensivePlay(tackled: boolean) {
+// Ends a defensive down that stayed a dead ball at some spot: a run tackle by
+// default, but also reused for a sack or an incomplete/broken-up pass by
+// passing an explicit spot and label instead of reading state.ballCarrier.
+export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; label?: string; allowFumble?: boolean }) {
   state.running = false
   if (tackled) {
-    const spotZ = state.ballCarrier?.z ?? state.defenseFirstDownZ
+    const spotZ = opts?.spotZ ?? state.ballCarrier?.z ?? state.defenseFirstDownZ
+    const label = opts?.label ?? 'TACKLE!'
+    const allowFumble = opts?.allowFumble ?? true
     // Punch it out: a takeaway that hands the ball straight to your offense.
-    if (Math.random() < 0.05) {
+    if (allowFumble && Math.random() < 0.05) {
       state.lastPlayStoppedClock = true
       statusText.textContent = `FORCED FUMBLE — takeaway! Your offense has it on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
@@ -633,17 +750,17 @@ export function finishDefensivePlay(tackled: boolean) {
     if (earnedFirstDown) {
       state.defenseDown = 1
       state.defenseFirstDownZ = spotZ
-      statusText.textContent = `TACKLE! Opponent moved the chains — 1st & 10 on the ${describeSpot(ballOnFromZ(spotZ))}.`
+      statusText.textContent = `${label} Opponent moved the chains — 1st & 10 on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
-      schedule(() => startDefensiveSeries(spotZ, false, false), 1200)
+      schedule(() => startDefensiveSeries(spotZ, null, false), 1200)
       return
     }
     state.defenseDown += 1
     if (state.defenseDown <= 4) {
       const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
-      statusText.textContent = `TACKLE! Opponent faces ${ordinal(state.defenseDown)} & ${togo} on the ${describeSpot(ballOnFromZ(spotZ))}.`
+      statusText.textContent = `${label} Opponent faces ${ordinal(state.defenseDown)} & ${togo} on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
-      schedule(() => startDefensiveSeries(spotZ, false, false), 1200)
+      schedule(() => startDefensiveSeries(spotZ, null, false), 1200)
       return
     }
     statusText.textContent = `TURNOVER ON DOWNS! Your offense takes over on the ${describeSpot(ballOnFromZ(spotZ))}.`
@@ -655,6 +772,30 @@ export function finishDefensivePlay(tackled: boolean) {
   const patGood = Math.random() < 0.94
   if (patGood) state.opponentScore = addPoints(state.opponentScore, 1)
   statusText.textContent = `OPPONENT TOUCHDOWN — extra point ${patGood ? 'good' : 'no good'}. They lead ${state.opponentScore}-${state.score}.`
+  updateHud()
+  if (state.quarter >= 5) {
+    schedule(endGame, 1600)
+    return
+  }
+  schedule(() => kickoff('offense'), 1500)
+}
+
+// An interception: the play is dead on the spot and possession flips straight
+// to your offense, same as a fumble recovery.
+export function interceptPass(spotZ: number) {
+  state.running = false
+  state.lastPlayStoppedClock = true
+  statusText.textContent = `INTERCEPTED! Your offense takes over on the ${describeSpot(ballOnFromZ(spotZ))}.`
+  updateHud()
+  schedule(() => resetDrive(spotZ), 1400)
+}
+
+// A sack that drives the QB back into his own end zone — the NFL rule: the
+// defense scores 2, and the team that gave it up has to free-kick it away.
+export function defensiveSafety() {
+  state.running = false
+  state.score = addPoints(state.score, 2)
+  statusText.textContent = `SAFETY! You sacked the QB in the end zone — you lead ${state.score}-${state.opponentScore}.`
   updateHud()
   if (state.quarter >= 5) {
     schedule(endGame, 1600)
@@ -685,6 +826,7 @@ function resetDrive(startZ = USER_TWENTY_Z) {
   state.lastPlayStoppedClock = true
   state.clockEventHandled = false
   buildDefense()
+  clearKickBlockers()
   while (linemen.length) world.remove(linemen.pop()!.mesh)
   while (receivers.length) world.remove(receivers.pop()!.mesh)
   while (teammates.length) world.remove(teammates.pop()!.mesh)
@@ -749,16 +891,19 @@ function snapDefense(call: DefenseCall) {
   state.stamina = 1
   state.gassed = false
   // Freeze the marker at the pre-snap spot for the duration of the play.
-  const snapZ = state.ballCarrier?.z ?? state.defenseStartZ
+  const snapZ = state.ballCarrier?.z ?? state.defenseSnapZ
   const snapTogo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - snapZ))
   state.snapDownText = `${ordinal(Math.min(state.defenseDown, 4))} & ${snapTogo}`
   state.snapYardsText = describeSpot(ballOnFromZ(snapZ))
-  const cfg: Record<DefenseCall, { radius: number; teamSpeed: number; carrierMul: number }> = {
-    base: { radius: 1.7, teamSpeed: 13, carrierMul: 1 },
-    blitz: { radius: 1.9, teamSpeed: 14.5, carrierMul: 1.12 },
-    cover2: { radius: 1.6, teamSpeed: 12, carrierMul: 0.9 },
-    goalline: { radius: 2.3, teamSpeed: 14, carrierMul: 0.95 },
-    spy: { radius: 1.8, teamSpeed: 13, carrierMul: 1 },
+  const cfg: Record<DefenseCall, { radius: number; teamSpeed: number; carrierMul: number; blitzers: number }> = {
+    base: { radius: 1.7, teamSpeed: 13, carrierMul: 1, blitzers: 0 },
+    blitz: { radius: 1.9, teamSpeed: 14.5, carrierMul: 1.12, blitzers: 2 },
+    cover2: { radius: 1.6, teamSpeed: 12, carrierMul: 0.9, blitzers: 0 },
+    goalline: { radius: 2.3, teamSpeed: 14, carrierMul: 0.95, blitzers: 1 },
+    spy: { radius: 1.8, teamSpeed: 13, carrierMul: 1, blitzers: 1 },
+    nickel: { radius: 1.5, teamSpeed: 13.5, carrierMul: 1.08, blitzers: 0 },
+    zoneBlitz: { radius: 1.8, teamSpeed: 14, carrierMul: 1.05, blitzers: 3 },
+    prevent: { radius: 1.6, teamSpeed: 11.5, carrierMul: 0.85, blitzers: 0 },
   }
   const c = cfg[call]
   state.defTackleRadius = c.radius
@@ -767,8 +912,50 @@ function snapDefense(call: DefenseCall) {
     teammate.speed = c.teamSpeed
     teammate.role = call === 'spy' && index === 0 ? 'spy' : 'man'
   })
-  statusText.textContent = `${DEFENSE_PLAYBOOK.find((d) => d.id === call)?.name} versus ${state.opponentPlay} — meet the runner and make the tackle!`
+  // On a pass play, assign each teammate to man-cover a receiver — except the
+  // defensive call's blitzers, who rush the passer instead (coverIndex -1).
+  if (state.oppPassPlayActive) {
+    const receiverCount = Math.max(1, defenders.filter((d) => d.isReceiver).length)
+    teammates.forEach((teammate, index) => {
+      teammate.coverIndex = index < c.blitzers ? -1 : (index - c.blitzers) % receiverCount
+    })
+  }
+  statusText.textContent = `${DEFENSE_PLAYBOOK.find((d) => d.id === call)?.name} versus ${state.opponentPlay} — ${
+    state.oppPassPlayActive ? 'cover your man and watch for the throw!' : 'meet the runner and make the tackle!'
+  }`
   updateHud()
+}
+
+// Switch control to whichever of your teammates is nearest the action (the
+// ball carrier, the pass target, or the QB before the snap) — like tapping the
+// player-switch button in an NFL game. The teammate you leave behind picks up
+// right where you were standing and keeps pursuing as AI.
+export function switchDefender() {
+  if (state.gameOver || state.possession !== 'defense' || !state.running || teammates.length === 0) return
+  const focus = state.ballCarrier ?? state.oppPassTarget ?? state.oppQB
+  const targetX = focus?.x ?? state.playerX
+  const targetZ = focus?.z ?? state.cameraZ
+  let bestIndex = 0
+  let bestDist = Infinity
+  teammates.forEach((teammate, index) => {
+    const dist = Math.hypot(teammate.x - targetX, teammate.z - targetZ)
+    if (dist < bestDist) {
+      bestDist = dist
+      bestIndex = index
+    }
+  })
+  const chosen = teammates[bestIndex]
+  const prevX = state.playerX
+  const prevZ = state.cameraZ
+  state.playerX = chosen.x
+  state.cameraZ = chosen.z
+  camera.position.set(state.playerX, EYE_HEIGHT, state.cameraZ)
+  aimCamera()
+  playerView.position.x = 0
+  chosen.x = prevX
+  chosen.z = prevZ
+  chosen.mesh.position.set(prevX, 0, prevZ)
+  statusText.textContent = 'Switched to the nearest defender!'
 }
 
 export function startPlay(play: PlayId) {
@@ -777,7 +964,7 @@ export function startPlay(play: PlayId) {
   // No special teams on a two-point try — it's a run/pass snap from the 2.
   if (state.twoPointActive && (play === 'fieldGoal' || play === 'punt' || play === 'kneel')) return
   if (play === 'fieldGoal') { attemptFieldGoal(); return }
-  if (play === 'punt') { puntBall(); return }
+  if (play === 'punt') { attemptPunt(); return }
   if (play === 'kneel') { kneelDown(); return }
   const runId = isRunId(play)
   // Runoff: if the previous play kept the clock alive, the huddle burns ~25s.
@@ -808,15 +995,15 @@ export function startPlay(play: PlayId) {
   if (runId) {
     while (receivers.length) world.remove(receivers.pop()!.mesh)
     // Each run differs by where you start and how long before you can accelerate.
-    const startX: Record<RunPlayId, number> = { iso: 0, offtackle: 5, toss: 12, draw: 0 }
-    const delay: Record<RunPlayId, number> = { iso: 0, offtackle: 0.2, toss: 0.4, draw: 0.7 }
+    const startX: Record<RunPlayId, number> = { iso: 0, offtackle: 5, toss: 12, draw: 0, counter: -5, stretch: 8 }
+    const delay: Record<RunPlayId, number> = { iso: 0, offtackle: 0.2, toss: 0.4, draw: 0.7, counter: 0.5, stretch: 0.25 }
     state.playerX = startX[play]
     state.runDelay = delay[play]
   } else {
     state.runDelay = 0
     buildReceivers(play)
   }
-  assignPassProtection(runId, play === 'paPost' || play === 'draw')
+  assignPassProtection(runId, play === 'paPost' || play === 'draw' || play === 'digs')
   playCall.classList.add('is-hidden')
   const label = OFFENSE_PLAYBOOK.find((p) => p.id === play)?.name ?? 'Play'
   statusText.textContent = runId
@@ -872,7 +1059,7 @@ export function updateHud() {
     return
   }
   if (state.possession === 'defense') {
-    const carrierZ = state.ballCarrier?.z ?? state.defenseStartZ
+    const carrierZ = state.ballCarrier?.z ?? state.defenseSnapZ
     const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - carrierZ))
     yardsLabelEl.textContent = 'Opp ball on'
     yardsEl.textContent = describeSpot(ballOnFromZ(carrierZ))

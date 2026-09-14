@@ -48,6 +48,14 @@ export type Defender = {
   homeX: number
   stumbleUntil: number
   blockedUntil: number
+  // Opponent pass-play personnel (see startDefensiveSeries / updateOpponentPass):
+  // the quarterback holding for a throw, or a receiver running a route.
+  isQB?: boolean
+  isReceiver?: boolean
+  startX?: number
+  breakX?: number
+  targetX?: number
+  routeDepth?: number
 }
 
 export type Lineman = {
@@ -82,13 +90,13 @@ export type CrowdMember = {
   headIndex: number
 }
 
-export type PassPlayId = 'slant' | 'verticals' | 'flood' | 'mesh' | 'paPost' | 'screen'
-export type RunPlayId = 'iso' | 'offtackle' | 'toss' | 'draw'
+export type PassPlayId = 'slant' | 'verticals' | 'flood' | 'mesh' | 'paPost' | 'screen' | 'outs' | 'digs'
+export type RunPlayId = 'iso' | 'offtackle' | 'toss' | 'draw' | 'counter' | 'stretch'
 export type SpecialPlayId = 'fieldGoal' | 'punt' | 'kneel'
 export type PlayId = PassPlayId | RunPlayId | SpecialPlayId
 export type PlayTab = 'pass' | 'run' | 'special'
-export type DefenseCall = 'base' | 'blitz' | 'cover2' | 'goalline' | 'spy'
-export type KickType = 'fieldGoal' | 'extraPoint'
+export type DefenseCall = 'base' | 'blitz' | 'cover2' | 'goalline' | 'spy' | 'nickel' | 'zoneBlitz' | 'prevent'
+export type KickType = 'fieldGoal' | 'extraPoint' | 'punt'
 
 export type OffensivePlay = { id: PlayId; name: string; blurb: string; tab: PlayTab }
 
@@ -103,10 +111,14 @@ export const OFFENSE_PLAYBOOK: OffensivePlay[] = [
   { id: 'mesh', name: 'Mesh', blurb: 'Rub crossers underneath', tab: 'pass' },
   { id: 'paPost', name: 'PA Post', blurb: 'Play-action deep shot', tab: 'pass' },
   { id: 'screen', name: 'Y-Screen', blurb: 'Screen behind the line', tab: 'pass' },
+  { id: 'outs', name: 'Sideline Outs', blurb: 'Quick breaks to both sidelines', tab: 'pass' },
+  { id: 'digs', name: 'Deep Digs', blurb: 'In-breaking routes past the linebackers', tab: 'pass' },
   { id: 'iso', name: 'Inside Zone', blurb: 'Downhill between the tackles', tab: 'run' },
   { id: 'offtackle', name: 'Off Tackle', blurb: 'Pull a guard, hit the edge', tab: 'run' },
   { id: 'toss', name: 'Toss Sweep', blurb: 'Get outside in a hurry', tab: 'run' },
   { id: 'draw', name: 'QB Draw', blurb: 'Sell the pass, then run', tab: 'run' },
+  { id: 'counter', name: 'Counter', blurb: 'Misdirection, then hit the backside', tab: 'run' },
+  { id: 'stretch', name: 'Outside Zone', blurb: 'Stretch it wide, then cut upfield', tab: 'run' },
   { id: 'fieldGoal', name: 'Field Goal', blurb: 'Kick for 3 — better odds up close', tab: 'special' },
   { id: 'punt', name: 'Punt', blurb: 'Flip the field on 4th down', tab: 'special' },
   { id: 'kneel', name: 'Victory Kneel', blurb: 'Burn ~40s, lose a yard', tab: 'special' },
@@ -118,9 +130,12 @@ export const DEFENSE_PLAYBOOK: Array<{ id: DefenseCall; name: string; blurb: str
   { id: 'cover2', name: 'Cover 2', blurb: 'Sag back — no big plays, soft underneath' },
   { id: 'goalline', name: 'Goal Line', blurb: 'Sell out to stop the score' },
   { id: 'spy', name: 'QB Spy', blurb: 'Mirror the runner, rally to the ball' },
+  { id: 'nickel', name: 'Nickel', blurb: 'Extra DB — clamps the pass, thin vs the run' },
+  { id: 'zoneBlitz', name: 'Zone Blitz', blurb: 'Send a crowd, drop a lineman into coverage' },
+  { id: 'prevent', name: 'Prevent', blurb: 'Play it way back — force the checkdown' },
 ]
 
-const RUN_IDS: readonly RunPlayId[] = ['iso', 'offtackle', 'toss', 'draw']
+const RUN_IDS: readonly RunPlayId[] = ['iso', 'offtackle', 'toss', 'draw', 'counter', 'stretch']
 export const isRunId = (id: PlayId | null): id is RunPlayId => !!id && (RUN_IDS as readonly string[]).includes(id)
 
 export { END_ZONE_DEPTH, USER_TWENTY_Z } from './gameMath.ts'
@@ -135,6 +150,17 @@ export const PLAY_CLOCK_SECONDS = 40
 // first-person eye height (raise it to make "you" feel taller on the field).
 export const MOVE_SCALE = 0.9
 export const EYE_HEIGHT = 2.7
+
+// A spread of believable skin tones, light to deep. Every on-field player and
+// sideline figure picks one at build time so the roster reads as a squad of
+// individuals instead of one cloned model. (The instanced crowd stays a single
+// tone — it's too far away to tell, and per-instance colour is far costlier.)
+export const SKIN_TONES = [
+  0xf6d0b0, 0xf0b48a, 0xe5a173, 0xd68b5c, 0xc07a4b,
+  0xa9673d, 0x8d5524, 0x6f4321, 0x593018,
+] as const
+
+export const pickSkinTone = () => SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)]
 
 // The Vikings wear purple; the opponent is whichever NFC North rival the
 // player picks from the team-select dialog at the start of a game.
@@ -315,7 +341,7 @@ app.innerHTML = `
     </div>
     <div class="controls-panel">
       <div class="instructions">
-        <span>Move: WASD or Arrow keys</span><span>Look: mouse (click field)</span><span>Sprint: Shift or Space (burns stamina)</span><span>Goal: reach the end zone</span>
+        <span>Move: WASD or Arrow keys</span><span>Look: mouse (click field)</span><span>Sprint: Shift or Space (burns stamina)</span><span>On defense: Q switches to the nearest defender</span><span>Goal: reach the end zone</span>
       </div>
       <div class="touch-controls">
         <button type="button" data-move="left">Left</button><button type="button" data-move="right">Right</button><button type="button" data-move="sprint">Sprint</button>
@@ -405,10 +431,21 @@ export const state = {
   defenseCall: 'base' as DefenseCall,
   defTackleRadius: 1.7,
   defCarrierSpeedMul: 1,
-  defenseStartZ: 0,
+  // The current down's line of scrimmage while you're on defense — refreshed on
+  // every snap (not just the start of the series), so it stays a reliable
+  // fallback spot for plays with no ball carrier yet, like an incomplete pass.
+  defenseSnapZ: 0,
   defenseFirstDownZ: 0,
   defenseDown: 1,
   ballCarrier: null as Defender | null,
+  // Opponent pass plays: a QB who holds for a read, then throws to a receiver.
+  oppQB: null as Defender | null,
+  oppPassPlayActive: false,
+  oppThrown: false,
+  oppThrowAt: 0,
+  oppPassTime: 0,
+  oppPassTarget: null as Defender | null,
+  passContestedOpp: false,
   quarter: 1,
   gameClock: QUARTER_SECONDS,
   playClock: PLAY_CLOCK_SECONDS,
@@ -425,7 +462,8 @@ export const state = {
   kickType: null as KickType | null,
   kickPower: 0,
   kickDistance: 0,
-  // Live kick in flight toward the uprights (field goal / extra point).
+  // Live kick in flight — toward the uprights for a field goal / extra
+  // point, or downfield for a punt.
   kickFlight: null as null | {
     t: number
     dur: number
@@ -435,6 +473,8 @@ export const state = {
     type: KickType
     distance: number
     made: boolean
+    // True when the defensive block unit got a hand on it — always no good.
+    blocked: boolean
   },
   // Brief window after a catch where you can't be tackled, so you get a step.
   catchGraceUntil: 0,
@@ -464,3 +504,7 @@ export const linemen: Lineman[] = []
 export const receivers: Receiver[] = []
 // Your AI defenders that pursue alongside you when the opponent has the ball.
 export const teammates: Defender[] = []
+// The opponent's field-goal / extra-point block unit: a wall that crashes the
+// line and leaps for the kick. Cosmetic, but kept in its own bucket so it is
+// animated and cleaned up independently of the live-play defenders.
+export const kickBlockers: Defender[] = []
