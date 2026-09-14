@@ -95,7 +95,7 @@ export type RunPlayId = 'iso' | 'offtackle' | 'toss' | 'draw' | 'counter' | 'str
 export type SpecialPlayId = 'fieldGoal' | 'punt' | 'kneel'
 export type PlayId = PassPlayId | RunPlayId | SpecialPlayId
 export type PlayTab = 'pass' | 'run' | 'special'
-export type DefenseCall = 'base' | 'blitz' | 'cover2' | 'goalline' | 'spy'
+export type DefenseCall = 'base' | 'blitz' | 'cover2' | 'goalline' | 'spy' | 'nickel' | 'zoneBlitz' | 'prevent'
 export type KickType = 'fieldGoal' | 'extraPoint' | 'punt'
 
 export type OffensivePlay = { id: PlayId; name: string; blurb: string; tab: PlayTab }
@@ -130,6 +130,9 @@ export const DEFENSE_PLAYBOOK: Array<{ id: DefenseCall; name: string; blurb: str
   { id: 'cover2', name: 'Cover 2', blurb: 'Sag back — no big plays, soft underneath' },
   { id: 'goalline', name: 'Goal Line', blurb: 'Sell out to stop the score' },
   { id: 'spy', name: 'QB Spy', blurb: 'Mirror the runner, rally to the ball' },
+  { id: 'nickel', name: 'Nickel', blurb: 'Extra DB — clamps the pass, thin vs the run' },
+  { id: 'zoneBlitz', name: 'Zone Blitz', blurb: 'Send a crowd, drop a lineman into coverage' },
+  { id: 'prevent', name: 'Prevent', blurb: 'Play it way back — force the checkdown' },
 ]
 
 const RUN_IDS: readonly RunPlayId[] = ['iso', 'offtackle', 'toss', 'draw', 'counter', 'stretch']

@@ -901,6 +901,9 @@ function snapDefense(call: DefenseCall) {
     cover2: { radius: 1.6, teamSpeed: 12, carrierMul: 0.9, blitzers: 0 },
     goalline: { radius: 2.3, teamSpeed: 14, carrierMul: 0.95, blitzers: 1 },
     spy: { radius: 1.8, teamSpeed: 13, carrierMul: 1, blitzers: 1 },
+    nickel: { radius: 1.5, teamSpeed: 13.5, carrierMul: 1.08, blitzers: 0 },
+    zoneBlitz: { radius: 1.8, teamSpeed: 14, carrierMul: 1.05, blitzers: 3 },
+    prevent: { radius: 1.6, teamSpeed: 11.5, carrierMul: 0.85, blitzers: 0 },
   }
   const c = cfg[call]
   state.defTackleRadius = c.radius
