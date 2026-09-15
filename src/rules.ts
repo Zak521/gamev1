@@ -1,11 +1,12 @@
 import * as THREE from 'three'
 import {
   DEFENSE_PLAYBOOK,
+  DIVISIONS,
+  DIVISION_IDS,
   EYE_HEIGHT,
   INTER_PLAY_RUNOFF,
   OFFENSE_PLAYBOOK,
   OPPONENT_GOAL_LINE_Z,
-  OPPONENT_TEAM_IDS,
   OT_SECONDS,
   PLAY_CLOCK_SECONDS,
   QUARTER_SECONDS,
@@ -20,6 +21,8 @@ import {
   cssHex,
   defensiveSpotZ,
   describeSpot,
+  divisionOptions,
+  divisionSelect,
   downAndDistance,
   downEl,
   formatClock,
@@ -55,11 +58,13 @@ import {
   statusText,
   teamOptions,
   teamSelect,
+  teamSelectBack,
+  teamSelectKicker,
   teammates,
   yardsEl,
   yardsLabelEl,
 } from './core.ts'
-import type { DefenseCall, Defender, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
+import type { DefenseCall, Defender, DivisionId, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
 import { aimCamera, applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, rebuildCrowd, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
@@ -313,6 +318,7 @@ export function startGame() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
   statusText.textContent = state.firstPossession === 'offense'
     ? 'You won the toss and will receive.'
@@ -320,10 +326,10 @@ export function startGame() {
   schedule(() => kickoff(state.firstPossession), 900)
 }
 
-// Shown before every new game so the player can pick their NFC North rival.
-// Picking a team recolors the opponent's end zone and sideline, then starts
-// the game; buildDefense() and startDefensiveSeries() pick up state.opponentTeam
-// for the players themselves.
+// Shown before every new game so the player can pick a division, then a rival
+// from inside it. Picking a team recolors the opponent's end zone and
+// sideline, then starts the game; buildDefense() and startDefensiveSeries()
+// pick up state.opponentTeam for the players themselves.
 export function openTeamSelect() {
   if (pendingTimer) clearTimeout(pendingTimer)
   pendingTimer = undefined
@@ -333,18 +339,39 @@ export function openTeamSelect() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
-  renderTeamOptions()
+  teamSelect.classList.add('is-hidden')
+  renderDivisionOptions()
+  divisionSelect.classList.remove('is-hidden')
+}
+
+function renderDivisionOptions() {
+  divisionOptions.innerHTML = ''
+  for (const id of DIVISION_IDS) {
+    const division = DIVISIONS[id]
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.innerHTML = `<strong>${division.name}</strong><span>${division.teamIds.length} teams</span>`
+    button.addEventListener('click', () => chooseDivision(id))
+    divisionOptions.appendChild(button)
+  }
+}
+
+function chooseDivision(id: DivisionId) {
+  const division = DIVISIONS[id]
+  teamSelectKicker.textContent = `${division.name} · New Game`
+  renderTeamOptions(division.teamIds)
+  divisionSelect.classList.add('is-hidden')
   teamSelect.classList.remove('is-hidden')
 }
 
-function renderTeamOptions() {
+function renderTeamOptions(teamIds: TeamId[]) {
   teamOptions.innerHTML = ''
-  for (const id of OPPONENT_TEAM_IDS) {
+  for (const id of teamIds) {
     const team = TEAMS[id]
     const button = document.createElement('button')
     button.type = 'button'
     button.style.setProperty('--team-color', `#${team.primary.toString(16).padStart(6, '0')}`)
-    button.innerHTML = `<strong>${team.fullName}</strong><span>NFC North rival</span>`
+    button.innerHTML = `<strong>${team.fullName}</strong><span>${team.abbr}</span>`
     button.addEventListener('click', () => chooseOpponent(id))
     teamOptions.appendChild(button)
   }
@@ -357,6 +384,12 @@ function chooseOpponent(id: TeamId) {
   teamSelect.classList.add('is-hidden')
   startGame()
 }
+
+teamSelectBack.addEventListener('click', () => {
+  teamSelect.classList.add('is-hidden')
+  renderDivisionOptions()
+  divisionSelect.classList.remove('is-hidden')
+})
 
 // Central down-and-distance advance for every way the offense can end a play.
 export function gainTo(newBallOn: number, lead = '', clockStops = false) {

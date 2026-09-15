@@ -391,6 +391,23 @@ button {
   border-top: 4px solid var(--team-color, #fbbf24);
 }
 
+.back-link {
+  border: none;
+  background: none;
+  color: #93c5fd;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-top: 2px;
+}
+
+.back-link:hover {
+  color: #fbbf24;
+  text-decoration: underline;
+}
+
 .controls-panel {
   display: flex;
   align-items: center;

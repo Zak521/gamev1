@@ -166,7 +166,7 @@ export const pickSkinTone = () => SKIN_TONES[Math.floor(Math.random() * SKIN_TON
 // player picks from the team-select dialog at the start of a game.
 export const VIKINGS_PURPLE = 0x8b5cf6
 
-export type TeamId = 'vikings' | 'lions' | 'packers' | 'bears'
+export type TeamId = 'vikings' | 'lions' | 'packers' | 'bears' | 'falcons' | 'panthers' | 'saints' | 'buccaneers'
 
 export type TeamInfo = {
   id: TeamId
@@ -215,10 +215,64 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
     accent: 0xc83803,
     nameplateText: '#ff9a63',
   },
+  falcons: {
+    id: 'falcons',
+    name: 'FALCONS',
+    abbr: 'ATL',
+    fullName: 'Atlanta Falcons',
+    primary: 0xa71930,
+    accent: 0x000000,
+    nameplateText: '#f8fafc',
+  },
+  panthers: {
+    id: 'panthers',
+    name: 'PANTHERS',
+    abbr: 'CAR',
+    fullName: 'Carolina Panthers',
+    primary: 0x0085ca,
+    accent: 0x101820,
+    nameplateText: '#dff6ff',
+  },
+  saints: {
+    id: 'saints',
+    name: 'SAINTS',
+    abbr: 'NO',
+    fullName: 'New Orleans Saints',
+    primary: 0x101820,
+    accent: 0xd3bc8d,
+    nameplateText: '#f2e2b8',
+  },
+  buccaneers: {
+    id: 'buccaneers',
+    name: 'BUCCANEERS',
+    abbr: 'TB',
+    fullName: 'Tampa Bay Buccaneers',
+    primary: 0xd50a0a,
+    accent: 0x34302b,
+    nameplateText: '#ffd9a8',
+  },
 }
 
-// NFC North rivals the player can choose to play against on a new game.
-export const OPPONENT_TEAM_IDS: TeamId[] = ['lions', 'packers', 'bears']
+export type DivisionId = 'nfcNorth' | 'nfcSouth'
+
+export type DivisionInfo = {
+  id: DivisionId
+  name: string
+  teamIds: TeamId[]
+}
+
+// Rival teams grouped by division. The team-select flow picks a division
+// first, then a team from within it — add a new division here (and its
+// teams to TEAMS above) to offer more opponents.
+export const DIVISIONS: Record<DivisionId, DivisionInfo> = {
+  nfcNorth: { id: 'nfcNorth', name: 'NFC North', teamIds: ['lions', 'packers', 'bears'] },
+  nfcSouth: { id: 'nfcSouth', name: 'NFC South', teamIds: ['falcons', 'panthers', 'saints', 'buccaneers'] },
+}
+
+export const DIVISION_IDS: DivisionId[] = Object.keys(DIVISIONS) as DivisionId[]
+
+// Every team the player can pick as an opponent, across all divisions.
+export const OPPONENT_TEAM_IDS: TeamId[] = DIVISION_IDS.flatMap((id) => DIVISIONS[id].teamIds)
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -333,10 +387,16 @@ app.innerHTML = `
         <h2>Call your defense</h2>
         <div id="defenseOptions" class="play-options"></div>
       </div>
+      <div id="divisionSelect" class="play-call is-hidden" role="dialog" aria-label="Choose a division">
+        <span class="play-call-kicker">New Game</span>
+        <h2>Pick a division</h2>
+        <div id="divisionOptions" class="play-options team-options"></div>
+      </div>
       <div id="teamSelect" class="play-call is-hidden" role="dialog" aria-label="Choose your opponent">
-        <span class="play-call-kicker">NFC North · New Game</span>
+        <span id="teamSelectKicker" class="play-call-kicker">New Game</span>
         <h2>Pick your opponent</h2>
         <div id="teamOptions" class="play-options team-options"></div>
+        <button id="teamSelectBack" class="back-link" type="button">&larr; Back to divisions</button>
       </div>
     </div>
     <div class="controls-panel">
@@ -376,8 +436,12 @@ export const playOptions = document.querySelector<HTMLDivElement>('#playOptions'
 export const defenseCall = document.querySelector<HTMLDivElement>('#defenseCall')!
 export const defenseKicker = document.querySelector<HTMLElement>('#defenseKicker')!
 export const defenseOptions = document.querySelector<HTMLDivElement>('#defenseOptions')!
+export const divisionSelect = document.querySelector<HTMLDivElement>('#divisionSelect')!
+export const divisionOptions = document.querySelector<HTMLDivElement>('#divisionOptions')!
 export const teamSelect = document.querySelector<HTMLDivElement>('#teamSelect')!
+export const teamSelectKicker = document.querySelector<HTMLElement>('#teamSelectKicker')!
 export const teamOptions = document.querySelector<HTMLDivElement>('#teamOptions')!
+export const teamSelectBack = document.querySelector<HTMLButtonElement>('#teamSelectBack')!
 export const gameOverPanel = document.querySelector<HTMLDivElement>('#gameOverPanel')!
 export const gameOverTitle = document.querySelector<HTMLElement>('#gameOverTitle')!
 export const gameOverScore = document.querySelector<HTMLElement>('#gameOverScore')!

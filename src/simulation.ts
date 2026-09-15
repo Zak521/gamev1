@@ -74,7 +74,10 @@ function updateReceivers(delta: number) {
       ? THREE.MathUtils.lerp(receiver.startX, receiver.breakX, routeProgress / 0.35)
       : THREE.MathUtils.lerp(receiver.breakX, receiver.targetX, (routeProgress - 0.35) / 0.65)
     const depth = Math.min(receiver.routeDepth, 8 + state.playTime * 8)
-    receiver.mesh.position.set(x, 0, state.cameraZ - depth)
+    // Never let a route carry the receiver past the back of the end zone —
+    // there's no field beyond it to catch a pass on.
+    const z = Math.max(OPPONENT_END_ZONE_BACK_Z + 0.5, state.cameraZ - depth)
+    receiver.mesh.position.set(x, 0, z)
     receiver.mesh.rotation.y = Math.atan2(x - receiver.startX, -depth) * 0.25
     ;(receiver.target.material as THREE.MeshBasicMaterial).opacity = 0.72 + Math.sin(state.playTime * 7 + receiver.routePhase) * 0.23
   })
@@ -344,7 +347,9 @@ function updateOppRoutes() {
       : THREE.MathUtils.lerp(r.breakX!, r.targetX!, (routeProgress - 0.35) / 0.65)
     const depth = Math.min(r.routeDepth!, 6 + state.playTime * 9)
     r.x = x
-    r.z = state.defenseSnapZ + depth
+    // Never let a route carry the receiver past the back of the end zone —
+    // there's no field beyond it to catch a pass on.
+    r.z = Math.min(USER_END_ZONE_BACK_Z - 0.5, state.defenseSnapZ + depth)
     r.mesh.position.set(r.x, Math.abs(Math.sin(performance.now() * 0.012 + r.runPhase)) * 0.08, r.z)
   }
 }
