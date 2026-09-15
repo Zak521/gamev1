@@ -77,6 +77,55 @@ export const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     pantStripe: [TEAMS.vikings.primary, 0xffc62f],
     socks: [TEAMS.vikings.primary, 0xffc62f],
   },
+  // Atlanta: black helmet with the red facemask, black pants, white numbers,
+  // red-and-silver jersey stripes.
+  falcons: {
+    helmet: 0x101820,
+    helmetMetal: 0.2,
+    facemask: TEAMS.falcons.primary,
+    pants: 0x101820,
+    numberColor: '#ffffff',
+    band: TEAMS.falcons.primary,
+    line: 0xa5acaf,
+    pantStripe: [TEAMS.falcons.primary, 0xa5acaf],
+  },
+  // Carolina: Panther-blue helmet with the black facemask, white pants with a
+  // blue-black stripe, blue numbers, blue-and-black jersey stripes.
+  panthers: {
+    helmet: TEAMS.panthers.primary,
+    helmetMetal: 0.4,
+    facemask: TEAMS.panthers.accent,
+    pants: 0xe9e9e6,
+    numberColor: '#0085ca',
+    band: TEAMS.panthers.primary,
+    line: TEAMS.panthers.accent,
+    pantStripe: [TEAMS.panthers.primary, TEAMS.panthers.accent],
+  },
+  // New Orleans: old-gold helmet with the black facemask, black pants, white
+  // numbers, gold-and-black jersey stripes.
+  saints: {
+    helmet: TEAMS.saints.accent,
+    helmetMetal: 0.4,
+    facemask: TEAMS.saints.primary,
+    pants: TEAMS.saints.primary,
+    numberColor: '#ffffff',
+    band: TEAMS.saints.accent,
+    line: TEAMS.saints.primary,
+    pantStripe: [TEAMS.saints.accent, TEAMS.saints.accent],
+  },
+  // Tampa Bay: red helmet with the pewter facemask and an orange-pewter crown
+  // stripe, pewter pants, white numbers, red-and-pewter jersey stripes.
+  buccaneers: {
+    helmet: TEAMS.buccaneers.primary,
+    helmetMetal: 0.25,
+    facemask: TEAMS.buccaneers.accent,
+    pants: TEAMS.buccaneers.accent,
+    numberColor: '#ffffff',
+    band: TEAMS.buccaneers.primary,
+    line: TEAMS.buccaneers.accent,
+    pantStripe: [TEAMS.buccaneers.primary, TEAMS.buccaneers.accent],
+    helmetStripe: [0xff7900, TEAMS.buccaneers.accent],
+  },
 }
 
 export const kitMat = (color: number, roughness = 0.5) => new THREE.MeshStandardMaterial({ color, roughness })

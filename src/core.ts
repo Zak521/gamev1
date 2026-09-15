@@ -166,7 +166,7 @@ export const pickSkinTone = () => SKIN_TONES[Math.floor(Math.random() * SKIN_TON
 // player picks from the team-select dialog at the start of a game.
 export const VIKINGS_PURPLE = 0x8b5cf6
 
-export type TeamId = 'vikings' | 'lions' | 'packers' | 'bears'
+export type TeamId = 'vikings' | 'lions' | 'packers' | 'bears' | 'falcons' | 'panthers' | 'saints' | 'buccaneers'
 
 export type TeamInfo = {
   id: TeamId
@@ -215,9 +215,45 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
     accent: 0xc83803,
     nameplateText: '#ff9a63',
   },
+  falcons: {
+    id: 'falcons',
+    name: 'FALCONS',
+    abbr: 'ATL',
+    fullName: 'Atlanta Falcons',
+    primary: 0xa71930,
+    accent: 0x000000,
+    nameplateText: '#f8fafc',
+  },
+  panthers: {
+    id: 'panthers',
+    name: 'PANTHERS',
+    abbr: 'CAR',
+    fullName: 'Carolina Panthers',
+    primary: 0x0085ca,
+    accent: 0x101820,
+    nameplateText: '#dff6ff',
+  },
+  saints: {
+    id: 'saints',
+    name: 'SAINTS',
+    abbr: 'NO',
+    fullName: 'New Orleans Saints',
+    primary: 0x101820,
+    accent: 0xd3bc8d,
+    nameplateText: '#f2e2b8',
+  },
+  buccaneers: {
+    id: 'buccaneers',
+    name: 'BUCCANEERS',
+    abbr: 'TB',
+    fullName: 'Tampa Bay Buccaneers',
+    primary: 0xd50a0a,
+    accent: 0x34302b,
+    nameplateText: '#ffd9a8',
+  },
 }
 
-export type DivisionId = 'nfcNorth'
+export type DivisionId = 'nfcNorth' | 'nfcSouth'
 
 export type DivisionInfo = {
   id: DivisionId
@@ -230,6 +266,7 @@ export type DivisionInfo = {
 // teams to TEAMS above) to offer more opponents.
 export const DIVISIONS: Record<DivisionId, DivisionInfo> = {
   nfcNorth: { id: 'nfcNorth', name: 'NFC North', teamIds: ['lions', 'packers', 'bears'] },
+  nfcSouth: { id: 'nfcSouth', name: 'NFC South', teamIds: ['falcons', 'panthers', 'saints', 'buccaneers'] },
 }
 
 export const DIVISION_IDS: DivisionId[] = Object.keys(DIVISIONS) as DivisionId[]

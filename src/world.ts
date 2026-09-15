@@ -223,9 +223,16 @@ export function labelSprite(text: string, color = '#ffffff') {
   const labelContext = labelCanvas.getContext('2d')!
   labelContext.clearRect(0, 0, 256, 128)
   labelContext.fillStyle = color
-  labelContext.font = 'bold 58px Arial'
   labelContext.textAlign = 'center'
   labelContext.textBaseline = 'middle'
+  // Shrink the font for longer team names (e.g. "BUCCANEERS") so they don't
+  // run off the edge of the fixed-size canvas the way a short one like "BEARS" would.
+  let fontSize = 58
+  labelContext.font = `bold ${fontSize}px Arial`
+  while (fontSize > 30 && labelContext.measureText(text).width > 232) {
+    fontSize -= 2
+    labelContext.font = `bold ${fontSize}px Arial`
+  }
   labelContext.fillText(text, 128, 64)
   const texture = new THREE.CanvasTexture(labelCanvas)
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }))
@@ -395,6 +402,104 @@ function packersGDecalTexture() {
   return packersGDecalTextureCache
 }
 
+// Atlanta Falcons helmet mark: the wishbone "F" — black, outlined in red.
+let falconsFDecalTextureCache: THREE.CanvasTexture | null = null
+function falconsFDecalTexture() {
+  if (falconsFDecalTextureCache) return falconsFDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 30
+  ctx.strokeStyle = '#a71930'
+  ctx.strokeText('F', 128, 146)
+  ctx.fillStyle = '#101820'
+  ctx.fillText('F', 128, 146)
+  falconsFDecalTextureCache = new THREE.CanvasTexture(c)
+  return falconsFDecalTextureCache
+}
+
+// Carolina Panthers helmet mark: the wishbone "P" — black, outlined in blue.
+let panthersPDecalTextureCache: THREE.CanvasTexture | null = null
+function panthersPDecalTexture() {
+  if (panthersPDecalTextureCache) return panthersPDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 30
+  ctx.strokeStyle = '#0085ca'
+  ctx.strokeText('P', 128, 146)
+  ctx.fillStyle = '#101820'
+  ctx.fillText('P', 128, 146)
+  panthersPDecalTextureCache = new THREE.CanvasTexture(c)
+  return panthersPDecalTextureCache
+}
+
+// New Orleans Saints helmet mark: a gold fleur-de-lis, outlined in black —
+// three petals fanned from a wrapped base, built from the same tapered-crescent
+// horn shape used for the Vikings mark.
+let saintsFleurDecalTextureCache: THREE.CanvasTexture | null = null
+function saintsFleurDecalTexture() {
+  if (saintsFleurDecalTextureCache) return saintsFleurDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.fillStyle = '#d3bc8d'
+  ctx.strokeStyle = '#101820'
+  ctx.lineWidth = 9
+  ctx.lineJoin = 'round'
+  ctx.save()
+  ctx.translate(128, 150)
+  ctx.rotate(Math.PI)
+  hornPath(ctx, 0, 0, 0.72, -1)
+  ctx.fill()
+  ctx.stroke()
+  hornPath(ctx, 0, 0, 0.72, 1)
+  ctx.fill()
+  ctx.stroke()
+  ctx.restore()
+  ctx.beginPath()
+  ctx.moveTo(128, 46)
+  ctx.quadraticCurveTo(96, 90, 128, 152)
+  ctx.quadraticCurveTo(160, 90, 128, 46)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.roundRect(94, 148, 68, 26, 8)
+  ctx.fill()
+  ctx.stroke()
+  saintsFleurDecalTextureCache = new THREE.CanvasTexture(c)
+  return saintsFleurDecalTextureCache
+}
+
+// Tampa Bay Buccaneers helmet mark: the wishbone "TB" — white, outlined in pewter.
+let buccaneersTBDecalTextureCache: THREE.CanvasTexture | null = null
+function buccaneersTBDecalTexture() {
+  if (buccaneersTBDecalTextureCache) return buccaneersTBDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 158px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 18
+  ctx.strokeStyle = '#34302b'
+  ctx.strokeText('TB', 128, 138)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillText('TB', 128, 138)
+  buccaneersTBDecalTextureCache = new THREE.CanvasTexture(c)
+  return buccaneersTBDecalTextureCache
+}
+
 function decalTextureForTeam(teamId: TeamId) {
   switch (teamId) {
     case 'vikings':
@@ -405,6 +510,14 @@ function decalTextureForTeam(teamId: TeamId) {
       return packersGDecalTexture()
     case 'bears':
       return bearsCDecalTexture()
+    case 'falcons':
+      return falconsFDecalTexture()
+    case 'panthers':
+      return panthersPDecalTexture()
+    case 'saints':
+      return saintsFleurDecalTexture()
+    case 'buccaneers':
+      return buccaneersTBDecalTexture()
   }
 }
 
