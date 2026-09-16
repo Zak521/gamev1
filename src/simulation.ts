@@ -202,7 +202,9 @@ export function updateGame(delta: number) {
     updatePass(delta)
     return
   }
-  const isRunPlay = isRunId(state.selectedPlay)
+  // A kick/punt return moves like a run play — forced forward, no play menu
+  // behind it — even though no play was actually called.
+  const isRunPlay = isRunId(state.selectedPlay) || state.returning
   const runReady = !isRunPlay || state.playTime >= state.runDelay
   const direction = (keys.left ? -1 : 0) + (keys.right ? 1 : 0)
   const depthDirection = isRunPlay ? (runReady ? 1 : 0) : (keys.forward ? 1 : 0) + (keys.backward ? -1 : 0)

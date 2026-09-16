@@ -4,6 +4,8 @@ import {
   canvas,
   keys,
   kickFill,
+  kickoffNormalButton,
+  kickoffOnsideButton,
   newGameButton,
   patCall,
   patGoButton,
@@ -34,6 +36,7 @@ import {
 } from './world.ts'
 import { createPlayerView, updateKickBlockers } from './entities.ts'
 import {
+  chooseKickoff,
   goForTwo,
   openTeamSelect,
   renderDefenseOptions,
@@ -187,5 +190,13 @@ patKickButton.addEventListener('click', () => {
 patGoButton.addEventListener('click', () => {
   if (state.gameOver) return
   goForTwo()
+})
+kickoffNormalButton.addEventListener('click', () => {
+  if (state.gameOver) return
+  chooseKickoff(false)
+})
+kickoffOnsideButton.addEventListener('click', () => {
+  if (state.gameOver) return
+  chooseKickoff(true)
 })
 requestAnimationFrame(frame)

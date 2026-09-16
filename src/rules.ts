@@ -41,6 +41,7 @@ import {
   kickFill,
   kickMeter,
   kickPrompt,
+  kickoffCall,
   linemen,
   loadSeason,
   losZ,
@@ -83,7 +84,17 @@ import {
   createLineman,
   spawnKickBlockers,
 } from './entities.ts'
-import { addPoints, clockExpiryForQuarter, kickIsGood, kickSuccessChance, opponentYardAfterTurnover, puntNetYards } from './gameRules.ts'
+import {
+  addPoints,
+  clockExpiryForQuarter,
+  kickIsGood,
+  kickSuccessChance,
+  kickoffNetYards,
+  onsideRecoverChance,
+  opponentKickoffNetYards,
+  opponentYardAfterTurnover,
+  puntNetYards,
+} from './gameRules.ts'
 
 // The AI offense's play call for a defensive series: either a run (a lane to
 // attack and a ball carrier speed) or a pass (routes for three receivers, plus
@@ -125,7 +136,14 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
     { kind: 'pass', name: 'Deep Shot', routes: [[-4, -8, 3, 34], [-18, -20, -22, 18], [18, 21, 23, 18]], readTime: 1.75 },
     { kind: 'pass', name: 'Screen Pass', routes: [[-11, -13, -15, 2], [11, 14, 17, 3], [1, 2, 3, 9]], readTime: 0.9 },
   ]
-  const opponentCall = opponentCalls[Math.floor(Math.random() * opponentCalls.length)]
+  // A kickoff/punt return isn't a called play — it's a returner catching the
+  // ball and improvising a lane, so force a plain "run" instead of picking
+  // from the normal playbook (which could otherwise hand them a pass play).
+  const isReturn = returnKind !== null
+  state.isReturnPlay = isReturn
+  const opponentCall: OpponentCall = isReturn
+    ? { kind: 'run', name: 'the return', lane: randomBetween(-8, 8), speed: 13.5 }
+    : opponentCalls[Math.floor(Math.random() * opponentCalls.length)]
   state.opponentPlay = opponentCall.name
   // Start on the defensive side and face the runner so every snap is a tackle attempt.
   state.cameraZ = Math.min(6, spotZ + 15)
@@ -190,12 +208,14 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
   playerView.rotation.z = 0
   playCall.classList.add('is-hidden')
   const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
-  defenseKicker.textContent = newSeries
-    ? `Opponent chose ${state.opponentPlay} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
-    : `Opponent chose ${state.opponentPlay} · ${ordinal(state.defenseDown)} & ${togo}`
   const returnLabel = returnKind === 'kickoff' ? 'Kickoff return' : returnKind === 'punt' ? 'Punt return' : null
+  defenseKicker.textContent = returnLabel
+    ? `${returnLabel} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
+    : newSeries
+      ? `Opponent chose ${state.opponentPlay} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
+      : `Opponent chose ${state.opponentPlay} · ${ordinal(state.defenseDown)} & ${togo}`
   statusText.textContent = returnLabel
-    ? `${returnLabel}: opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
+    ? `${returnLabel} — choose your coverage, then run him down before he breaks free!`
     : `Opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
   renderDefenseOptions()
   defenseCall.classList.remove('is-hidden')
@@ -211,15 +231,147 @@ function schedule(fn: () => void, ms: number) {
   }, ms)
 }
 
-// Kick the ball to whichever side is receiving. Kickoffs are not played out;
-// the receiving team simply starts a possession near its own 25.
+// Kick the ball to whichever side is receiving. If the opponent is receiving,
+// it's your kickoff — line up at the meter, same as a punt or field goal
+// (with an onside option when you're trailing late). If you're receiving,
+// the opponent kicks automatically, since only you ever operate the meter.
 function kickoff(receiving: 'offense' | 'defense') {
   state.clockEventHandled = false
   if (receiving === 'offense') {
-    resetDrive(losZ(25))
-  } else {
-    startDefensiveSeries(defensiveSpotZ(25), 'kickoff')
+    statusText.textContent = 'Opponent lines up to kick off…'
+    updateHud()
+    schedule(() => simulateOpponentKickoff(), 900)
+    return
   }
+  if (onsideEligible()) {
+    statusText.textContent = 'You trail late — kick it away, or try an onside kick?'
+    updateHud()
+    kickoffCall.classList.remove('is-hidden')
+    return
+  }
+  state.onsideKick = false
+  startKick('kickoff', 65)
+}
+
+// Onside kicks are a trailing team's tool late in the game — offered only
+// when kicking off (never when receiving) with the clock working against you.
+function onsideEligible() {
+  return state.quarter >= 4 && state.score < state.opponentScore
+}
+
+// The player's choice from the kickoff dialog: a normal deep kick, or a
+// short onside attempt. Either way it plays out at the kick meter.
+export function chooseKickoff(onside: boolean) {
+  kickoffCall.classList.add('is-hidden')
+  state.onsideKick = onside
+  startKick('kickoff', onside ? 12 : 65)
+}
+
+// The opponent's own kickoff, rolled automatically since only you ever use
+// the kick meter. Mostly a deep touchback, occasionally a live return, and
+// — mirroring real coaching — a shot at an onside kick if the opponent is
+// trailing late, same as the choice you get in the same spot.
+function simulateOpponentKickoff() {
+  if (state.gameOver) return
+  const attemptsOnside = state.quarter >= 4 && state.opponentScore < state.score && Math.random() < 0.8
+  if (attemptsOnside) {
+    const recovered = Math.random() < 0.22
+    const landingYard = 55 // their own 45, in user-centric yards (100 - 45)
+    if (recovered) {
+      statusText.textContent = `Opponent tries an onside kick — and recovers it at the ${describeSpot(landingYard)}!`
+      updateHud()
+      schedule(() => startDefensiveSeries(defensiveSpotZ(100 - landingYard), null), 1300)
+      return
+    }
+    statusText.textContent = `Opponent tries an onside kick — you scoop it up at the ${describeSpot(landingYard)}!`
+    updateHud()
+    schedule(() => resetDrive(losZ(landingYard)), 1300)
+    return
+  }
+  const touchback = Math.random() < 0.62
+  const netYards = opponentKickoffNetYards(touchback, Math.random())
+  const landingOwnYard = 35 + netYards
+  if (landingOwnYard >= 100) {
+    statusText.textContent = 'Touchback — your ball on the 25.'
+    updateHud()
+    schedule(() => resetDrive(losZ(25)), 1300)
+    return
+  }
+  const userYard = 100 - landingOwnYard
+  statusText.textContent = `Kickoff to the ${describeSpot(userYard)} — it's being returned!`
+  updateHud()
+  schedule(() => startUserReturn(losZ(userYard)), 1300)
+}
+
+// Hands you an interactive return after a non-touchback kickoff: catch it
+// and run, with the kicking team's coverage bearing down on you. Ends in a
+// fresh 1st & 10 wherever you're brought down (see finishRunPlay).
+function startUserReturn(spotZ: number) {
+  if (state.gameOver) return
+  releaseMouse()
+  clearPlayers()
+  state.possession = 'offense'
+  state.selectedPlay = null
+  state.throwing = false
+  state.afterCatch = false
+  state.passTarget = null
+  state.playTime = 0
+  state.returning = true
+  state.running = true
+  state.runDelay = 0
+  state.playerX = 0
+  state.cameraZ = spotZ
+  state.ballOn = ballOnFromZ(spotZ)
+  state.carrierLaneX = 0
+  state.stamina = 1
+  state.gassed = false
+  state.sacked = false
+  state.pressureAnnounced = false
+  state.prevDirection = 0
+  state.playerVX = 0
+  state.playerVZ = 0
+  state.footstepTimer = 0
+  state.snapDownText = '1st & 10'
+  state.snapYardsText = describeSpot(state.ballOn)
+  camera.position.set(0, EYE_HEIGHT, state.cameraZ)
+  resetView()
+  playerView.position.x = 0
+  playerView.rotation.z = 0
+  balls.player.visible = true
+  balls.thrown.visible = false
+  // The kicking team's coverage: spread downfield of the catch, closing fast.
+  const opponentTeam = TEAMS[state.opponentTeam]
+  for (let index = 0; index < 6; index += 1) {
+    const x = randomBetween(-16, 16)
+    const z = spotZ - (8 + index * 5)
+    const d = createDefender(x, z, opponentTeam.primary, 40 + index, opponentTeam.id)
+    d.role = 'rush'
+    d.speed = 12.5
+  }
+  statusText.textContent = 'Kick return — WASD to find a crease, Shift or Space to sprint!'
+  updateHud()
+}
+
+// Settle a played-out kickoff once the ball lands: an onside attempt is a
+// straight recovery race, a normal kick is either a touchback or a live
+// return (played out the same way a punt return is — as the opponent's
+// next defensive series, starting from the spot it came down).
+function settleKickoffFlight(landingYard: number, recovered: boolean) {
+  if (state.onsideKick) {
+    if (recovered) {
+      statusText.textContent = `ONSIDE KICK RECOVERED! Your ball at the ${describeSpot(landingYard)}.`
+      updateHud()
+      schedule(() => resetDrive(losZ(landingYard)), 1300)
+      return
+    }
+    giveBallToOpponent(100 - landingYard, `Onside kick — opponent recovers it at the ${describeSpot(landingYard)}.`)
+    return
+  }
+  if (landingYard >= 100) {
+    giveBallToOpponent(25, 'Kickoff into the end zone — touchback. Opponent ball on their 25.')
+    return
+  }
+  giveBallToOpponent(100 - landingYard, `Kickoff to the ${describeSpot(landingYard)} — it's being returned!`, 'kickoff')
 }
 
 function halftime() {
@@ -255,6 +407,7 @@ function endGame() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  kickoffCall.classList.add('is-hidden')
   const won = state.score > state.opponentScore
   const tied = state.score === state.opponentScore
   const season = loadSeason()
@@ -314,6 +467,9 @@ export function startGame() {
   state.twoPointActive = false
   state.kickType = null
   state.kickFlight = null
+  state.onsideKick = false
+  state.returning = false
+  state.isReturnPlay = false
   clearKickBlockers()
   state.stamina = 1
   state.gassed = false
@@ -324,6 +480,7 @@ export function startGame() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  kickoffCall.classList.add('is-hidden')
   conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
@@ -347,6 +504,7 @@ export function openTeamSelect() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  kickoffCall.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
   renderConferenceOptions()
@@ -432,6 +590,9 @@ teamSelectBack.addEventListener('click', () => {
 
 // Central down-and-distance advance for every way the offense can end a play.
 export function gainTo(newBallOn: number, lead = '', clockStops = false) {
+  // A return that ends in a touchdown or a safety skips finishRunPlay's
+  // return-specific handling entirely, so clear the flag here too.
+  state.returning = false
   state.lastPlayStoppedClock = clockStops
   state.running = false
   state.ballOn = THREE.MathUtils.clamp(Math.round(newBallOn), 0, 100)
@@ -530,6 +691,11 @@ export function startKick(type: KickType, distance: number) {
     state.ballOn = 85
     state.cameraZ = losZ(state.ballOn)
   }
+  // Kickoffs go from the kicking team's own 35, same as the NFL.
+  if (type === 'kickoff') {
+    state.ballOn = 35
+    state.cameraZ = losZ(state.ballOn)
+  }
   keys.sprint = false
   // Put the kicking unit on the field before the player takes the kick.
   // The goal post stays directly ahead, with the purple line protecting the holder.
@@ -539,16 +705,27 @@ export function startKick(type: KickType, distance: number) {
   resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
-  for (const [index, x] of [-7.2, -3.6, 0, 3.6, 7.2].entries()) {
-    createLineman(x, state.cameraZ - 4.8, 70 + index)
+  if (type === 'kickoff') {
+    // Your own coverage team spread along the line. Nobody rushes a
+    // kickoff, so unlike every other kick there's no block unit to spawn.
+    for (const [index, x] of [-10.5, -6.3, -2.1, 2.1, 6.3, 10.5].entries()) {
+      createLineman(x, state.cameraZ - 5, 40 + index)
+    }
+  } else {
+    for (const [index, x] of [-7.2, -3.6, 0, 3.6, 7.2].entries()) {
+      createLineman(x, state.cameraZ - 4.8, 70 + index)
+    }
+    // A second purple player beside the holder makes the extra-point unit feel set.
+    createLineman(2.8, state.cameraZ - 2.8, 88)
+    // The opponent's block unit lines up across the ball and rushes the kick.
+    spawnKickBlockers(state.cameraZ)
   }
-  // A second purple player beside the holder makes the extra-point unit feel set.
-  createLineman(2.8, state.cameraZ - 2.8, 88)
-  // The opponent's block unit lines up across the ball and rushes the kick.
-  spawnKickBlockers(state.cameraZ)
   balls.player.visible = true
   balls.thrown.visible = false
-  const label = type === 'extraPoint' ? 'Extra point' : type === 'punt' ? 'Punt' : `${distance}-yard field goal`
+  const label = type === 'extraPoint' ? 'Extra point'
+    : type === 'punt' ? 'Punt'
+    : type === 'kickoff' ? (state.onsideKick ? 'Onside kick' : 'Kickoff')
+    : `${distance}-yard field goal`
   kickPrompt.textContent = `${label} — press Space to kick`
   kickFill.style.width = '0%'
   kickMeter.classList.remove('is-hidden')
@@ -562,6 +739,10 @@ export function resolveKick() {
   kickMeter.classList.add('is-hidden')
   if (type === 'punt') {
     resolvePunt()
+    return
+  }
+  if (type === 'kickoff') {
+    resolveKickoff()
     return
   }
   const distance = state.kickDistance
@@ -633,6 +814,30 @@ function resolvePunt() {
   statusText.textContent = 'The punt is up…'
 }
 
+function resolveKickoff() {
+  const from = new THREE.Vector3(0, 0.35, state.cameraZ - 1.4)
+  let landingYard: number
+  let recovered = true
+  if (state.onsideKick) {
+    // Onside kicks only have to travel 10 yards before either team can
+    // legally recover them — the timing meter decides who gets there first.
+    landingYard = Math.min(100, state.ballOn + 10)
+    recovered = Math.random() < onsideRecoverChance(state.kickPower)
+  } else {
+    landingYard = Math.min(100, state.ballOn + kickoffNetYards(state.kickPower))
+  }
+  const to = new THREE.Vector3(randomBetween(-3, 3), 0.4, losZ(landingYard))
+  const netTravel = Math.max(10, landingYard - state.ballOn)
+  const apex = state.onsideKick ? 3.5 : THREE.MathUtils.clamp(netTravel * 0.32, 9, 20)
+  const dur = state.onsideKick ? 0.7 : THREE.MathUtils.clamp(netTravel * 0.045, 1.6, 3.2)
+  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
+  state.kickFlight = { t: 0, dur, from, ctrl, to, type: 'kickoff', distance: landingYard, made: recovered, blocked: false }
+  balls.player.visible = false
+  balls.thrown.visible = true
+  balls.thrown.position.copy(from)
+  statusText.textContent = state.onsideKick ? "Onside kick — it's a scramble!" : 'The kickoff is up…'
+}
+
 export function updateKickFlight(delta: number) {
   const k = state.kickFlight
   if (!k) return
@@ -659,6 +864,10 @@ function settleKick(type: KickType, distance: number, made: boolean, blocked = f
   clearKickBlockers()
   if (type === 'punt') {
     settlePunt(distance, blocked)
+    return
+  }
+  if (type === 'kickoff') {
+    settleKickoffFlight(distance, made)
     return
   }
   if (type === 'extraPoint') {
@@ -806,6 +1015,8 @@ function resolveTwoPoint(scored: boolean) {
 // passing an explicit spot and label instead of reading state.ballCarrier.
 export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; label?: string; allowFumble?: boolean }) {
   state.running = false
+  const wasReturn = state.isReturnPlay
+  state.isReturnPlay = false
   if (tackled) {
     const spotZ = opts?.spotZ ?? state.ballCarrier?.z ?? state.defenseFirstDownZ
     const label = opts?.label ?? 'TACKLE!'
@@ -816,6 +1027,14 @@ export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; l
       statusText.textContent = `FORCED FUMBLE — takeaway! Your offense has it on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
       schedule(() => resetDrive(spotZ), 1300)
+      return
+    }
+    // A return ends the moment the whistle blows — the tackle spot becomes a
+    // fresh 1st & 10 for the opponent, not another down in an existing series.
+    if (wasReturn) {
+      statusText.textContent = `${label} Opponent starts their drive on the ${describeSpot(ballOnFromZ(spotZ))}.`
+      updateHud()
+      schedule(() => startDefensiveSeries(spotZ, null, true), 1200)
       return
     }
     const earnedFirstDown = spotZ - state.defenseFirstDownZ >= 10
@@ -1049,6 +1268,7 @@ export function startPlay(play: PlayId) {
   state.running = true
   state.throwing = false
   state.afterCatch = false
+  state.returning = false
   state.snapZ = state.cameraZ
   state.prevDirection = 0
   state.playerVX = 0
@@ -1149,6 +1369,26 @@ export function finishRunPlay() {
   state.afterCatch = false
   const outOfBounds = Math.abs(state.playerX) >= 24
   const spotYard = ballOnFromZ(state.cameraZ)
+  // A return ends the instant you're down — it isn't a down in a drive, so
+  // wherever you end up becomes a fresh 1st & 10 instead of advancing downs.
+  if (state.returning) {
+    state.returning = false
+    state.running = false
+    if (state.sprinting && !outOfBounds && spotYard < 99 && Math.random() < 0.045) {
+      if (Math.random() < 0.5) {
+        giveBallToOpponent(100 - spotYard, 'FUMBLED RETURN — opponent recovers!')
+        return
+      }
+      statusText.textContent = 'FUMBLE — but you recover your own return!'
+      updateHud()
+      schedule(() => resetDrive(losZ(spotYard)), 1300)
+      return
+    }
+    statusText.textContent = outOfBounds ? 'Out of bounds — your drive starts here.' : 'Tackled! Your drive starts here.'
+    updateHud()
+    schedule(() => resetDrive(losZ(spotYard)), 1200)
+    return
+  }
   // Taking a hit at full sprint in the field of play can jar the ball loose —
   // the price of running with the sprint button held down.
   if (state.sprinting && !outOfBounds && spotYard < 99 && Math.random() < 0.045) {

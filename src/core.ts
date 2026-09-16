@@ -96,7 +96,7 @@ export type SpecialPlayId = 'fieldGoal' | 'punt' | 'kneel'
 export type PlayId = PassPlayId | RunPlayId | SpecialPlayId
 export type PlayTab = 'pass' | 'run' | 'special'
 export type DefenseCall = 'base' | 'blitz' | 'cover2' | 'goalline' | 'spy' | 'nickel' | 'zoneBlitz' | 'prevent'
-export type KickType = 'fieldGoal' | 'extraPoint' | 'punt'
+export type KickType = 'fieldGoal' | 'extraPoint' | 'punt' | 'kickoff'
 
 export type OffensivePlay = { id: PlayId; name: string; blurb: string; tab: PlayTab }
 
@@ -454,6 +454,14 @@ app.innerHTML = `
           <button id="patGo" type="button"><strong>Go for Two</strong><span>One shot from the 2 — about 50/50, worth 2</span></button>
         </div>
       </div>
+      <div id="kickoffCall" class="play-call is-hidden" role="dialog" aria-label="Kickoff decision">
+        <span class="play-call-kicker">Kickoff</span>
+        <h2>You trail late — how do you want to kick it off?</h2>
+        <div class="play-options">
+          <button id="kickoffNormal" type="button"><strong>Normal Kickoff</strong><span>Kick it deep and trust your defense</span></button>
+          <button id="kickoffOnside" type="button"><strong>Onside Kick</strong><span>Short kick, 10 yards — try to steal it back</span></button>
+        </div>
+      </div>
       <div id="playCall" class="play-call" role="dialog" aria-label="Choose an offensive play">
         <span id="playCallKicker" class="play-call-kicker">Offense · 1st &amp; 10 · Play clock 40</span>
         <h2>Pick a play</h2>
@@ -542,6 +550,9 @@ export const newGameButton = document.querySelector<HTMLButtonElement>('#newGame
 export const patCall = document.querySelector<HTMLDivElement>('#patCall')!
 export const patKickButton = document.querySelector<HTMLButtonElement>('#patKick')!
 export const patGoButton = document.querySelector<HTMLButtonElement>('#patGo')!
+export const kickoffCall = document.querySelector<HTMLDivElement>('#kickoffCall')!
+export const kickoffNormalButton = document.querySelector<HTMLButtonElement>('#kickoffNormal')!
+export const kickoffOnsideButton = document.querySelector<HTMLButtonElement>('#kickoffOnside')!
 
 // ---------------------------------------------------------------------------
 // Shared mutable game state
@@ -584,6 +595,10 @@ export const state = {
   bigPlayAllowed: true,
   playTab: 'pass' as PlayTab,
   runDelay: 0,
+  // True while you're returning a kickoff or punt: forces run-style forward
+  // movement (like a called run play) with no play menu behind it — see
+  // startUserReturn / finishRunPlay.
+  returning: false,
   defenseCall: 'base' as DefenseCall,
   defTackleRadius: 1.7,
   defCarrierSpeedMul: 1,
@@ -593,6 +608,11 @@ export const state = {
   defenseSnapZ: 0,
   defenseFirstDownZ: 0,
   defenseDown: 1,
+  // True for the opponent's very first "down" after receiving a kickoff or
+  // punt: it's a return, not a called play, so the down it ends on always
+  // becomes a fresh 1st & 10 rather than advancing a series (see
+  // finishDefensivePlay).
+  isReturnPlay: false,
   ballCarrier: null as Defender | null,
   // Opponent pass plays: a QB who holds for a read, then throws to a receiver.
   oppQB: null as Defender | null,
@@ -618,6 +638,9 @@ export const state = {
   kickType: null as KickType | null,
   kickPower: 0,
   kickDistance: 0,
+  // True while the current kickoff is a short onside attempt rather than a
+  // normal deep kick — set by chooseKickoff(), read by resolveKickoff().
+  onsideKick: false,
   // Live kick in flight — toward the uprights for a field goal / extra
   // point, or downfield for a punt.
   kickFlight: null as null | {
