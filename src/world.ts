@@ -568,6 +568,78 @@ function steelersMarkDecalTexture() {
   return steelersMarkDecalTextureCache
 }
 
+// Houston Texans helmet mark: paired bull horns curling out from the crown,
+// forming the same "T" silhouette as the real logo — built from the same
+// tapered-crescent horn shape used for the Vikings and Saints marks.
+let texansHornsDecalTextureCache: THREE.CanvasTexture | null = null
+function texansHornsDecalTexture() {
+  if (texansHornsDecalTextureCache) return texansHornsDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  paintHorns(ctx, 128, 176, 1.05, true, '#a71930', '#03202f', 12)
+  texansHornsDecalTextureCache = new THREE.CanvasTexture(c)
+  return texansHornsDecalTextureCache
+}
+
+// Indianapolis Colts helmet mark: the horseshoe, open at the bottom.
+let coltsHorseshoeDecalTextureCache: THREE.CanvasTexture | null = null
+function coltsHorseshoeDecalTexture() {
+  if (coltsHorseshoeDecalTextureCache) return coltsHorseshoeDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  const gap = 0.75
+  ctx.lineCap = 'round'
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 32
+  ctx.beginPath()
+  ctx.arc(128, 132, 78, Math.PI / 2 + gap, Math.PI / 2 - gap + Math.PI * 2)
+  ctx.stroke()
+  coltsHorseshoeDecalTextureCache = new THREE.CanvasTexture(c)
+  return coltsHorseshoeDecalTextureCache
+}
+
+// Jacksonville Jaguars helmet mark: the wishbone "J" — gold, outlined in black.
+let jaguarsJDecalTextureCache: THREE.CanvasTexture | null = null
+function jaguarsJDecalTexture() {
+  if (jaguarsJDecalTextureCache) return jaguarsJDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#000000'
+  ctx.strokeText('J', 128, 146)
+  ctx.fillStyle = '#d7a22a'
+  ctx.fillText('J', 128, 146)
+  jaguarsJDecalTextureCache = new THREE.CanvasTexture(c)
+  return jaguarsJDecalTextureCache
+}
+
+// Tennessee Titans helmet mark: the wishbone "T" — Titans blue, outlined in red.
+let titansTDecalTextureCache: THREE.CanvasTexture | null = null
+function titansTDecalTexture() {
+  if (titansTDecalTextureCache) return titansTDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#c8102e'
+  ctx.strokeText('T', 128, 146)
+  ctx.fillStyle = '#4b92db'
+  ctx.fillText('T', 128, 146)
+  titansTDecalTextureCache = new THREE.CanvasTexture(c)
+  return titansTDecalTextureCache
+}
+
 function decalTextureForTeam(teamId: TeamId) {
   switch (teamId) {
     case 'vikings':
@@ -590,6 +662,14 @@ function decalTextureForTeam(teamId: TeamId) {
       return ravensBDecalTexture()
     case 'steelers':
       return steelersMarkDecalTexture()
+    case 'texans':
+      return texansHornsDecalTexture()
+    case 'colts':
+      return coltsHorseshoeDecalTexture()
+    case 'jaguars':
+      return jaguarsJDecalTexture()
+    case 'titans':
+      return titansTDecalTexture()
     case 'bengals':
     case 'browns':
       // Real Bengals (the tiger-stripe crown carries the look) and Browns

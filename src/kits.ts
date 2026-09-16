@@ -180,6 +180,58 @@ export const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     line: TEAMS.steelers.accent,
     pantStripe: [TEAMS.steelers.primary, TEAMS.steelers.accent],
   },
+  // Houston: deep-steel-blue helmet with the bull-horn mark, battle-red
+  // facemask, white pants with a steel-blue-and-red stripe, white numbers,
+  // steel-blue-and-red jersey stripes.
+  texans: {
+    helmet: TEAMS.texans.primary,
+    helmetMetal: 0.25,
+    facemask: TEAMS.texans.accent,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.texans.primary,
+    line: TEAMS.texans.accent,
+    pantStripe: [TEAMS.texans.primary, TEAMS.texans.accent],
+  },
+  // Indianapolis: blue helmet with the horseshoe mark, grey facemask, white
+  // pants with a blue stripe, white numbers, blue-and-grey jersey stripes —
+  // no black anywhere, same as the real thing.
+  colts: {
+    helmet: TEAMS.colts.primary,
+    helmetMetal: 0.35,
+    facemask: TEAMS.colts.accent,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.colts.primary,
+    line: TEAMS.colts.accent,
+    pantStripe: [TEAMS.colts.primary, TEAMS.colts.primary],
+  },
+  // Jacksonville: teal helmet with the "J" mark, black facemask, black pants,
+  // white numbers, teal-and-gold jersey stripes.
+  jaguars: {
+    helmet: TEAMS.jaguars.primary,
+    helmetMetal: 0.3,
+    facemask: 0x000000,
+    pants: 0x000000,
+    numberColor: '#ffffff',
+    band: TEAMS.jaguars.primary,
+    line: TEAMS.jaguars.accent,
+    pantStripe: [TEAMS.jaguars.primary, TEAMS.jaguars.accent],
+  },
+  // Tennessee: navy helmet with the "T" mark and a Titans-blue-and-red crown
+  // stripe, red facemask, white pants with a navy-and-red stripe, white
+  // numbers, navy-and-Titans-blue jersey stripes.
+  titans: {
+    helmet: TEAMS.titans.primary,
+    helmetMetal: 0.2,
+    facemask: 0xc8102e,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.titans.primary,
+    line: TEAMS.titans.accent,
+    pantStripe: [TEAMS.titans.primary, 0xc8102e],
+    helmetStripe: [TEAMS.titans.accent, 0xc8102e],
+  },
 }
 
 export const kitMat = (color: number, roughness = 0.5) => new THREE.MeshStandardMaterial({ color, roughness })

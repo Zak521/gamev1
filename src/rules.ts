@@ -9,9 +9,11 @@ import {
   OFFENSE_PLAYBOOK,
   OPPONENT_GOAL_LINE_Z,
   OT_SECONDS,
+  OUT_OF_BOUNDS_X,
   PLAY_CLOCK_SECONDS,
   QUARTER_SECONDS,
   TEAMS,
+  USER_END_ZONE_BACK_Z,
   USER_TWENTY_Z,
   ballOnFromZ,
   clockEl,
@@ -270,40 +272,97 @@ export function chooseKickoff(onside: boolean) {
   startKick('kickoff', onside ? 12 : 65)
 }
 
-// The opponent's own kickoff, rolled automatically since only you ever use
-// the kick meter. Mostly a deep touchback, occasionally a live return, and
-// — mirroring real coaching — a shot at an onside kick if the opponent is
-// trailing late, same as the choice you get in the same spot.
+// The opponent's own kickoff — an automatic decision, since only you ever run
+// the kick meter, but played out as a real, visible kick: the ball launches
+// off their tee and arcs toward you exactly like your own kickoff does (see
+// resolveKickoff/updateKickFlight), then settles into either a touchback or
+// an interactive return once it lands (see settleOpponentKickoffFlight).
+// Mostly a deep touchback, occasionally a live return, and — mirroring real
+// coaching — a shot at an onside kick if the opponent is trailing late, same
+// as the choice you get in the same spot.
 function simulateOpponentKickoff() {
   if (state.gameOver) return
+  releaseMouse()
+  clearPlayers()
+  state.opponentKicking = true
   const attemptsOnside = state.quarter >= 4 && state.opponentScore < state.score && Math.random() < 0.8
-  if (attemptsOnside) {
-    const recovered = Math.random() < 0.22
-    const landingYard = 55 // their own 45, in user-centric yards (100 - 45)
-    if (recovered) {
-      statusText.textContent = `Opponent tries an onside kick — and recovers it at the ${describeSpot(landingYard)}!`
+  state.onsideKick = attemptsOnside
+  // "Own-yard" distance the kick travels, same convention as an opponent
+  // drive (0 = their goal line): an onside kick only has to clear 10 yards,
+  // a normal kick's net comes off the same touchback-weighted roll as before.
+  const netYards = attemptsOnside ? 10 : opponentKickoffNetYards(Math.random() < 0.62, Math.random())
+  const landingOwnYard = 35 + netYards
+  const userYard = 100 - landingOwnYard
+  const kickSpotZ = losZ(65) // the opponent's own 35, in user-perspective yards
+  // Clamp the visible landing spot to the back of your end zone — the real
+  // outcome (touchback or not) is still decided by the unclamped yardage above.
+  const toZ = Math.min(losZ(userYard), USER_END_ZONE_BACK_Z)
+  const from = new THREE.Vector3(0, 0.35, kickSpotZ + 1.4)
+  const to = new THREE.Vector3(randomBetween(-3, 3), 0.4, toZ)
+  const apex = attemptsOnside ? 3.5 : THREE.MathUtils.clamp(netYards * 0.32, 9, 20)
+  const dur = attemptsOnside ? 0.8 : THREE.MathUtils.clamp(netYards * 0.045, 1.6, 3.2)
+  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
+  // Spectate from around where you'll pick up the return — the same spot an
+  // interactive return would start from — facing upfield into the incoming kick.
+  state.cameraZ = toZ
+  camera.position.set(0, EYE_HEIGHT, toZ)
+  resetView()
+  playerView.position.x = 0
+  playerView.rotation.z = 0
+  // The opponent's coverage line, lined up at their kickoff spot just like
+  // your own coverage does before you kick.
+  const opponentTeam = TEAMS[state.opponentTeam]
+  for (const [index, x] of [-10.5, -6.3, -2.1, 2.1, 6.3, 10.5].entries()) {
+    createDefender(x, kickSpotZ, opponentTeam.primary, 40 + index, opponentTeam.id)
+  }
+  balls.player.visible = false
+  balls.thrown.visible = true
+  balls.thrown.position.copy(from)
+  state.kickFlight = {
+    t: 0,
+    dur,
+    from,
+    ctrl,
+    to,
+    type: 'kickoff',
+    // Carried through to settleOpponentKickoffFlight as the "own-yard" spot.
+    distance: landingOwnYard,
+    // Onside only: whether the kicking team (the opponent) wins the recovery race.
+    made: attemptsOnside ? Math.random() < 0.22 : true,
+    blocked: false,
+  }
+  statusText.textContent = attemptsOnside ? "Opponent tries an onside kick — it's a scramble!" : 'Opponent kicks off — the ball is up…'
+  updateHud()
+}
+
+// Settle the opponent's kickoff once it lands: an onside attempt is a
+// straight recovery race, a normal kick is either a touchback or a live
+// return you play out yourself (see startUserReturn). Mirrors
+// settleKickoffFlight, just with the outcomes flipped the other way.
+function settleOpponentKickoffFlight(landingOwnYard: number, recoveredByKicker: boolean) {
+  state.opponentKicking = false
+  const userYard = 100 - landingOwnYard
+  if (state.onsideKick) {
+    if (recoveredByKicker) {
+      statusText.textContent = `Opponent tries an onside kick — and recovers it at the ${describeSpot(userYard)}!`
       updateHud()
-      schedule(() => startDefensiveSeries(defensiveSpotZ(100 - landingYard), null), 1300)
+      schedule(() => startDefensiveSeries(defensiveSpotZ(landingOwnYard), null), 1000)
       return
     }
-    statusText.textContent = `Opponent tries an onside kick — you scoop it up at the ${describeSpot(landingYard)}!`
+    statusText.textContent = `Opponent tries an onside kick — you scoop it up at the ${describeSpot(userYard)}!`
     updateHud()
-    schedule(() => resetDrive(losZ(landingYard)), 1300)
+    schedule(() => resetDrive(losZ(userYard)), 1000)
     return
   }
-  const touchback = Math.random() < 0.62
-  const netYards = opponentKickoffNetYards(touchback, Math.random())
-  const landingOwnYard = 35 + netYards
   if (landingOwnYard >= 100) {
     statusText.textContent = 'Touchback — your ball on the 25.'
     updateHud()
-    schedule(() => resetDrive(losZ(25)), 1300)
+    schedule(() => resetDrive(losZ(25)), 1000)
     return
   }
-  const userYard = 100 - landingOwnYard
   statusText.textContent = `Kickoff to the ${describeSpot(userYard)} — it's being returned!`
   updateHud()
-  schedule(() => startUserReturn(losZ(userYard)), 1300)
+  schedule(() => startUserReturn(losZ(userYard)), 300)
 }
 
 // Hands you an interactive return after a non-touchback kickoff: catch it
@@ -887,7 +946,8 @@ function settleKick(type: KickType, distance: number, made: boolean, blocked = f
     return
   }
   if (type === 'kickoff') {
-    settleKickoffFlight(distance, made)
+    if (state.opponentKicking) settleOpponentKickoffFlight(distance, made)
+    else settleKickoffFlight(distance, made)
     return
   }
   if (type === 'extraPoint') {
@@ -1033,7 +1093,11 @@ function resolveTwoPoint(scored: boolean) {
 // Ends a defensive down that stayed a dead ball at some spot: a run tackle by
 // default, but also reused for a sack or an incomplete/broken-up pass by
 // passing an explicit spot and label instead of reading state.ballCarrier.
-export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; label?: string; allowFumble?: boolean }) {
+// `stopClock` mirrors gainTo's clockStops flag for the offense — pass true for
+// anything that's dead by rule (out of bounds, an incomplete/broken-up pass);
+// left false (the default), the clock keeps running into the next snap, same
+// as a real tackle in the field of play.
+export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; label?: string; allowFumble?: boolean; stopClock?: boolean }) {
   state.running = false
   const wasReturn = state.isReturnPlay
   state.isReturnPlay = false
@@ -1041,6 +1105,7 @@ export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; l
     const spotZ = opts?.spotZ ?? state.ballCarrier?.z ?? state.defenseFirstDownZ
     const label = opts?.label ?? 'TACKLE!'
     const allowFumble = opts?.allowFumble ?? true
+    const stopClock = opts?.stopClock ?? false
     // Punch it out: a takeaway that hands the ball straight to your offense.
     if (allowFumble && Math.random() < 0.05) {
       state.lastPlayStoppedClock = true
@@ -1052,6 +1117,7 @@ export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; l
     // A return ends the moment the whistle blows — the tackle spot becomes a
     // fresh 1st & 10 for the opponent, not another down in an existing series.
     if (wasReturn) {
+      state.lastPlayStoppedClock = stopClock
       statusText.textContent = `${label} Opponent starts their drive on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
       schedule(() => startDefensiveSeries(spotZ, null, true), 1200)
@@ -1059,6 +1125,7 @@ export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; l
     }
     const earnedFirstDown = spotZ - state.defenseFirstDownZ >= 10
     if (earnedFirstDown) {
+      state.lastPlayStoppedClock = stopClock
       state.defenseDown = 1
       state.defenseFirstDownZ = spotZ
       statusText.textContent = `${label} Opponent moved the chains — 1st & 10 on the ${describeSpot(ballOnFromZ(spotZ))}.`
@@ -1066,6 +1133,7 @@ export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; l
       schedule(() => startDefensiveSeries(spotZ, null, false), 1200)
       return
     }
+    state.lastPlayStoppedClock = stopClock
     state.defenseDown += 1
     if (state.defenseDown <= 4) {
       const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
@@ -1406,7 +1474,9 @@ export function finishRunPlay() {
   state.selectedPlay = null
   const wasAfterCatch = state.afterCatch
   state.afterCatch = false
-  const outOfBounds = Math.abs(state.playerX) >= 24
+  // playerX is free to run all the way to the real sideline (±SIDELINE_X) —
+  // this only trips once you actually get there, not at some earlier cap.
+  const outOfBounds = Math.abs(state.playerX) >= OUT_OF_BOUNDS_X
   const spotYard = ballOnFromZ(state.cameraZ)
   // A return ends the instant you're down — it isn't a down in a drive, so
   // wherever you end up becomes a fresh 1st & 10 instead of advancing downs.
@@ -1425,7 +1495,13 @@ export function finishRunPlay() {
     }
     statusText.textContent = outOfBounds ? 'Out of bounds — your drive starts here.' : 'Tackled! Your drive starts here.'
     updateHud()
-    schedule(() => resetDrive(losZ(spotYard)), 1200)
+    // resetDrive always marks the clock stopped (right for a touchback or a
+    // turnover); a return that's tackled in the field of play should instead
+    // keep running into the next snap, same as any other in-bounds tackle.
+    schedule(() => {
+      resetDrive(losZ(spotYard))
+      state.lastPlayStoppedClock = outOfBounds
+    }, 1200)
     return
   }
   // Taking a hit at full sprint in the field of play can jar the ball loose —

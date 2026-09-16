@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import {
   OPPONENT_END_ZONE_BACK_Z,
   OPPONENT_GOAL_LINE_Z,
+  OUT_OF_BOUNDS_X,
+  SIDELINE_X,
   USER_END_ZONE_BACK_Z,
   USER_GOAL_LINE_Z,
   ballOnFromZ,
@@ -18,6 +20,8 @@ import { downAndDistanceText } from './gameRules.ts'
 export {
   OPPONENT_END_ZONE_BACK_Z,
   OPPONENT_GOAL_LINE_Z,
+  OUT_OF_BOUNDS_X,
+  SIDELINE_X,
   USER_END_ZONE_BACK_Z,
   USER_GOAL_LINE_Z,
   ballOnFromZ,
@@ -179,6 +183,10 @@ export type TeamId =
   | 'bengals'
   | 'browns'
   | 'steelers'
+  | 'texans'
+  | 'colts'
+  | 'jaguars'
+  | 'titans'
 
 export type TeamInfo = {
   id: TeamId
@@ -299,6 +307,42 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
     accent: 0xffb612,
     nameplateText: '#fff2c2',
   },
+  texans: {
+    id: 'texans',
+    name: 'TEXANS',
+    abbr: 'HOU',
+    fullName: 'Houston Texans',
+    primary: 0x03202f,
+    accent: 0xa71930,
+    nameplateText: '#eaf1f5',
+  },
+  colts: {
+    id: 'colts',
+    name: 'COLTS',
+    abbr: 'IND',
+    fullName: 'Indianapolis Colts',
+    primary: 0x002c5f,
+    accent: 0xa2aaad,
+    nameplateText: '#dbe8f5',
+  },
+  jaguars: {
+    id: 'jaguars',
+    name: 'JAGUARS',
+    abbr: 'JAX',
+    fullName: 'Jacksonville Jaguars',
+    primary: 0x006778,
+    accent: 0xd7a22a,
+    nameplateText: '#fff4d6',
+  },
+  titans: {
+    id: 'titans',
+    name: 'TITANS',
+    abbr: 'TEN',
+    fullName: 'Tennessee Titans',
+    primary: 0x0c2340,
+    accent: 0x4b92db,
+    nameplateText: '#cfe3fb',
+  },
 }
 
 export type ConferenceId = 'NFC' | 'AFC'
@@ -318,7 +362,7 @@ export const CONFERENCES: Record<ConferenceId, ConferenceInfo> = {
 
 export const CONFERENCE_IDS: ConferenceId[] = ['NFC', 'AFC']
 
-export type DivisionId = 'nfcNorth' | 'nfcSouth' | 'afcNorth'
+export type DivisionId = 'nfcNorth' | 'nfcSouth' | 'afcNorth' | 'afcSouth'
 
 export type DivisionInfo = {
   id: DivisionId
@@ -344,6 +388,12 @@ export const DIVISIONS: Record<DivisionId, DivisionInfo> = {
     name: 'AFC North',
     conference: 'AFC',
     teamIds: ['ravens', 'bengals', 'browns', 'steelers'],
+  },
+  afcSouth: {
+    id: 'afcSouth',
+    name: 'AFC South',
+    conference: 'AFC',
+    teamIds: ['texans', 'colts', 'jaguars', 'titans'],
   },
 }
 
@@ -663,6 +713,10 @@ export const state = {
   // True while the current kickoff is a short onside attempt rather than a
   // normal deep kick — set by chooseKickoff(), read by resolveKickoff().
   onsideKick: false,
+  // True while the ball in flight is the opponent's own kickoff to you,
+  // rather than your kickoff to them — read by settleKick() to route a
+  // landed kickoff to the right outcome (see simulateOpponentKickoff).
+  opponentKicking: false,
   // Live kick in flight — toward the uprights for a field goal / extra
   // point, or downfield for a punt.
   kickFlight: null as null | {

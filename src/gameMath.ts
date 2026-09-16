@@ -7,6 +7,13 @@ export const USER_TWENTY_Z = USER_GOAL_LINE_Z - 20
 export const END_ZONE_DEPTH = 10
 export const USER_END_ZONE_BACK_Z = USER_GOAL_LINE_Z + END_ZONE_DEPTH
 export const OPPONENT_END_ZONE_BACK_Z = OPPONENT_GOAL_LINE_Z - END_ZONE_DEPTH
+// Half the field's real NFL width (53.3 yards — see createField in world.ts):
+// the actual sideline, not an earlier artificial cap. Nobody — ball carrier,
+// defender, or you — is walled off short of it; you only go out of bounds by
+// actually reaching it.
+export const SIDELINE_X = 26.65
+// How close to the sideline counts as having stepped out of it.
+export const OUT_OF_BOUNDS_X = SIDELINE_X - 0.5
 
 export function ordinal(n: number) {
   return n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`
