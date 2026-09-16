@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import {
+  CONFERENCE_IDS,
+  CONFERENCES,
   DEFENSE_PLAYBOOK,
   DIVISIONS,
-  DIVISION_IDS,
   EYE_HEIGHT,
   INTER_PLAY_RUNOFF,
   OFFENSE_PLAYBOOK,
@@ -14,6 +15,8 @@ import {
   USER_TWENTY_Z,
   ballOnFromZ,
   clockEl,
+  conferenceOptions,
+  conferenceSelect,
   defenseCall,
   defenseKicker,
   defenseOptions,
@@ -23,6 +26,9 @@ import {
   describeSpot,
   divisionOptions,
   divisionSelect,
+  divisionSelectBack,
+  divisionSelectKicker,
+  divisionsInConference,
   downAndDistance,
   downEl,
   formatClock,
@@ -64,7 +70,7 @@ import {
   yardsEl,
   yardsLabelEl,
 } from './core.ts'
-import type { DefenseCall, Defender, DivisionId, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
+import type { ConferenceId, DefenseCall, Defender, DivisionId, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
 import { aimCamera, applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, rebuildCrowd, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
@@ -318,6 +324,7 @@ export function startGame() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
   statusText.textContent = state.firstPossession === 'offense'
@@ -326,10 +333,11 @@ export function startGame() {
   schedule(() => kickoff(state.firstPossession), 900)
 }
 
-// Shown before every new game so the player can pick a division, then a rival
-// from inside it. Picking a team recolors the opponent's end zone and
-// sideline, then starts the game; buildDefense() and startDefensiveSeries()
-// pick up state.opponentTeam for the players themselves.
+// Shown before every new game so the player can pick a conference, then a
+// division inside it, then a rival from inside that division. Picking a team
+// recolors the opponent's end zone and sideline, then starts the game;
+// buildDefense() and startDefensiveSeries() pick up state.opponentTeam for
+// the players themselves.
 export function openTeamSelect() {
   if (pendingTimer) clearTimeout(pendingTimer)
   pendingTimer = undefined
@@ -339,19 +347,44 @@ export function openTeamSelect() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
-  renderDivisionOptions()
+  renderConferenceOptions()
+  conferenceSelect.classList.remove('is-hidden')
+}
+
+function renderConferenceOptions() {
+  conferenceOptions.innerHTML = ''
+  for (const id of CONFERENCE_IDS) {
+    const conference = CONFERENCES[id]
+    const teamCount = divisionsInConference(id).reduce((sum, division) => sum + division.teamIds.length, 0)
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.innerHTML = `<strong>${conference.fullName}</strong><span>${teamCount} teams</span>`
+    button.addEventListener('click', () => chooseConference(id))
+    conferenceOptions.appendChild(button)
+  }
+}
+
+// Remembers which conference is being browsed so the team-select back button
+// can return to the right division list.
+let selectedConference: ConferenceId = 'NFC'
+
+function chooseConference(id: ConferenceId) {
+  selectedConference = id
+  divisionSelectKicker.textContent = `${CONFERENCES[id].name} · New Game`
+  renderDivisionOptions(id)
+  conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.remove('is-hidden')
 }
 
-function renderDivisionOptions() {
+function renderDivisionOptions(conferenceId: ConferenceId) {
   divisionOptions.innerHTML = ''
-  for (const id of DIVISION_IDS) {
-    const division = DIVISIONS[id]
+  for (const division of divisionsInConference(conferenceId)) {
     const button = document.createElement('button')
     button.type = 'button'
     button.innerHTML = `<strong>${division.name}</strong><span>${division.teamIds.length} teams</span>`
-    button.addEventListener('click', () => chooseDivision(id))
+    button.addEventListener('click', () => chooseDivision(division.id))
     divisionOptions.appendChild(button)
   }
 }
@@ -363,6 +396,12 @@ function chooseDivision(id: DivisionId) {
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.remove('is-hidden')
 }
+
+divisionSelectBack.addEventListener('click', () => {
+  divisionSelect.classList.add('is-hidden')
+  renderConferenceOptions()
+  conferenceSelect.classList.remove('is-hidden')
+})
 
 function renderTeamOptions(teamIds: TeamId[]) {
   teamOptions.innerHTML = ''
@@ -387,7 +426,7 @@ function chooseOpponent(id: TeamId) {
 
 teamSelectBack.addEventListener('click', () => {
   teamSelect.classList.add('is-hidden')
-  renderDivisionOptions()
+  renderDivisionOptions(selectedConference)
   divisionSelect.classList.remove('is-hidden')
 })
 

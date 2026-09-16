@@ -500,6 +500,74 @@ function buccaneersTBDecalTexture() {
   return buccaneersTBDecalTextureCache
 }
 
+// Baltimore Ravens helmet mark: the wishbone "B" — black, outlined in gold.
+let ravensBDecalTextureCache: THREE.CanvasTexture | null = null
+function ravensBDecalTexture() {
+  if (ravensBDecalTextureCache) return ravensBDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#9e7c0c'
+  ctx.strokeText('B', 128, 146)
+  ctx.fillStyle = '#101820'
+  ctx.fillText('B', 128, 146)
+  ravensBDecalTextureCache = new THREE.CanvasTexture(c)
+  return ravensBDecalTextureCache
+}
+
+// A single hypocycloid "astroid" — the puffy four-pointed shape used three-up
+// in the Steelers' Steelmark badge — filled and outlined at (cx, cy) with
+// radius r.
+function paintAstroid(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: string) {
+  const k = r * 0.42
+  ctx.beginPath()
+  ctx.moveTo(cx, cy - r)
+  ctx.quadraticCurveTo(cx + k, cy - k, cx + r, cy)
+  ctx.quadraticCurveTo(cx + k, cy + k, cx, cy + r)
+  ctx.quadraticCurveTo(cx - k, cy + k, cx - r, cy)
+  ctx.quadraticCurveTo(cx - k, cy - k, cx, cy - r)
+  ctx.closePath()
+  ctx.fillStyle = fill
+  ctx.fill()
+  ctx.lineWidth = 4
+  ctx.strokeStyle = '#101820'
+  ctx.stroke()
+}
+
+// Pittsburgh Steelers helmet mark: the Steelmark — a white badge ringed in
+// black, with the three astroids (yellow for steel, red for toughness, blue
+// for strength) fanned above the wordmark. Applied to one side of the helmet
+// only; see the singleSided flag on helmetDecal below.
+let steelersMarkDecalTextureCache: THREE.CanvasTexture | null = null
+function steelersMarkDecalTexture() {
+  if (steelersMarkDecalTextureCache) return steelersMarkDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.beginPath()
+  ctx.arc(128, 128, 118, 0, Math.PI * 2)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fill()
+  ctx.lineWidth = 8
+  ctx.strokeStyle = '#101820'
+  ctx.stroke()
+  paintAstroid(ctx, 82, 108, 32, '#ffb612')
+  paintAstroid(ctx, 128, 94, 32, '#c60c30')
+  paintAstroid(ctx, 174, 108, 32, '#00539b')
+  ctx.fillStyle = '#101820'
+  ctx.font = 'bold 26px Arial, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('STEELERS', 128, 180)
+  steelersMarkDecalTextureCache = new THREE.CanvasTexture(c)
+  return steelersMarkDecalTextureCache
+}
+
 function decalTextureForTeam(teamId: TeamId) {
   switch (teamId) {
     case 'vikings':
@@ -518,19 +586,35 @@ function decalTextureForTeam(teamId: TeamId) {
       return saintsFleurDecalTexture()
     case 'buccaneers':
       return buccaneersTBDecalTexture()
+    case 'ravens':
+      return ravensBDecalTexture()
+    case 'steelers':
+      return steelersMarkDecalTexture()
+    case 'bengals':
+    case 'browns':
+      // Real Bengals (the tiger-stripe crown carries the look) and Browns
+      // (logo-less since 1946) helmets carry no side mark.
+      return null
   }
 }
 
+// Teams whose real helmet decal appears on one side only, most famously the
+// Steelers' Steelmark — the NFL's original single-sided decal, kept since 1962.
+const SINGLE_SIDED_DECAL_TEAMS = new Set<TeamId>(['steelers'])
+
 // A helmet decal: a small plane on each side of the helmet, textured with the
 // team's mark. The far side is mirrored so a directional mark (the horn) reads
-// correctly from both profiles.
+// correctly from both profiles; teams with no mark (or a single-sided one)
+// skip a side entirely rather than faking symmetry the real helmet doesn't have.
 export function helmetDecal(teamId: TeamId, radius: number, y: number) {
   const group = new THREE.Group()
-  const isVikings = teamId === 'vikings'
   const texture = decalTextureForTeam(teamId)
+  if (!texture) return group
+  const isVikings = teamId === 'vikings'
   const w = radius * (isVikings ? 1.35 : 1.05)
   const h = radius * (isVikings ? 1.2 : 1.05)
-  for (const side of [-1, 1]) {
+  const sides = SINGLE_SIDED_DECAL_TEAMS.has(teamId) ? [1] : [-1, 1]
+  for (const side of sides) {
     const decal = new THREE.Mesh(
       new THREE.PlaneGeometry(w, h),
       new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }),

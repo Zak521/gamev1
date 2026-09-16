@@ -166,7 +166,19 @@ export const pickSkinTone = () => SKIN_TONES[Math.floor(Math.random() * SKIN_TON
 // player picks from the team-select dialog at the start of a game.
 export const VIKINGS_PURPLE = 0x8b5cf6
 
-export type TeamId = 'vikings' | 'lions' | 'packers' | 'bears' | 'falcons' | 'panthers' | 'saints' | 'buccaneers'
+export type TeamId =
+  | 'vikings'
+  | 'lions'
+  | 'packers'
+  | 'bears'
+  | 'falcons'
+  | 'panthers'
+  | 'saints'
+  | 'buccaneers'
+  | 'ravens'
+  | 'bengals'
+  | 'browns'
+  | 'steelers'
 
 export type TeamInfo = {
   id: TeamId
@@ -251,25 +263,95 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
     accent: 0x34302b,
     nameplateText: '#ffd9a8',
   },
+  ravens: {
+    id: 'ravens',
+    name: 'RAVENS',
+    abbr: 'BAL',
+    fullName: 'Baltimore Ravens',
+    primary: 0x241773,
+    accent: 0x9e7c0c,
+    nameplateText: '#f5dfa0',
+  },
+  bengals: {
+    id: 'bengals',
+    name: 'BENGALS',
+    abbr: 'CIN',
+    fullName: 'Cincinnati Bengals',
+    primary: 0xfb4f14,
+    accent: 0x000000,
+    nameplateText: '#ffd9c2',
+  },
+  browns: {
+    id: 'browns',
+    name: 'BROWNS',
+    abbr: 'CLE',
+    fullName: 'Cleveland Browns',
+    primary: 0x311d00,
+    accent: 0xff3c00,
+    nameplateText: '#ffcda6',
+  },
+  steelers: {
+    id: 'steelers',
+    name: 'STEELERS',
+    abbr: 'PIT',
+    fullName: 'Pittsburgh Steelers',
+    primary: 0x101820,
+    accent: 0xffb612,
+    nameplateText: '#fff2c2',
+  },
 }
 
-export type DivisionId = 'nfcNorth' | 'nfcSouth'
+export type ConferenceId = 'NFC' | 'AFC'
+
+export type ConferenceInfo = {
+  id: ConferenceId
+  name: string
+  fullName: string
+}
+
+// The two conferences the player picks between before narrowing to a
+// division. Add a division below and tag it with one of these ids.
+export const CONFERENCES: Record<ConferenceId, ConferenceInfo> = {
+  NFC: { id: 'NFC', name: 'NFC', fullName: 'National Football Conference' },
+  AFC: { id: 'AFC', name: 'AFC', fullName: 'American Football Conference' },
+}
+
+export const CONFERENCE_IDS: ConferenceId[] = ['NFC', 'AFC']
+
+export type DivisionId = 'nfcNorth' | 'nfcSouth' | 'afcNorth'
 
 export type DivisionInfo = {
   id: DivisionId
   name: string
+  conference: ConferenceId
   teamIds: TeamId[]
 }
 
-// Rival teams grouped by division. The team-select flow picks a division
-// first, then a team from within it — add a new division here (and its
-// teams to TEAMS above) to offer more opponents.
+// Rival teams grouped by division. The new-game flow picks a conference
+// first, then a division inside it, then a team from within that division —
+// add a new division here (and its teams to TEAMS above) to offer more
+// opponents.
 export const DIVISIONS: Record<DivisionId, DivisionInfo> = {
-  nfcNorth: { id: 'nfcNorth', name: 'NFC North', teamIds: ['lions', 'packers', 'bears'] },
-  nfcSouth: { id: 'nfcSouth', name: 'NFC South', teamIds: ['falcons', 'panthers', 'saints', 'buccaneers'] },
+  nfcNorth: { id: 'nfcNorth', name: 'NFC North', conference: 'NFC', teamIds: ['lions', 'packers', 'bears'] },
+  nfcSouth: {
+    id: 'nfcSouth',
+    name: 'NFC South',
+    conference: 'NFC',
+    teamIds: ['falcons', 'panthers', 'saints', 'buccaneers'],
+  },
+  afcNorth: {
+    id: 'afcNorth',
+    name: 'AFC North',
+    conference: 'AFC',
+    teamIds: ['ravens', 'bengals', 'browns', 'steelers'],
+  },
 }
 
 export const DIVISION_IDS: DivisionId[] = Object.keys(DIVISIONS) as DivisionId[]
+
+export function divisionsInConference(conference: ConferenceId): DivisionInfo[] {
+  return DIVISION_IDS.map((id) => DIVISIONS[id]).filter((division) => division.conference === conference)
+}
 
 // Every team the player can pick as an opponent, across all divisions.
 export const OPPONENT_TEAM_IDS: TeamId[] = DIVISION_IDS.flatMap((id) => DIVISIONS[id].teamIds)
@@ -387,10 +469,16 @@ app.innerHTML = `
         <h2>Call your defense</h2>
         <div id="defenseOptions" class="play-options"></div>
       </div>
-      <div id="divisionSelect" class="play-call is-hidden" role="dialog" aria-label="Choose a division">
+      <div id="conferenceSelect" class="play-call is-hidden" role="dialog" aria-label="Choose a conference">
         <span class="play-call-kicker">New Game</span>
+        <h2>Pick a conference</h2>
+        <div id="conferenceOptions" class="play-options team-options"></div>
+      </div>
+      <div id="divisionSelect" class="play-call is-hidden" role="dialog" aria-label="Choose a division">
+        <span id="divisionSelectKicker" class="play-call-kicker">New Game</span>
         <h2>Pick a division</h2>
         <div id="divisionOptions" class="play-options team-options"></div>
+        <button id="divisionSelectBack" class="back-link" type="button">&larr; Back to conferences</button>
       </div>
       <div id="teamSelect" class="play-call is-hidden" role="dialog" aria-label="Choose your opponent">
         <span id="teamSelectKicker" class="play-call-kicker">New Game</span>
@@ -436,8 +524,12 @@ export const playOptions = document.querySelector<HTMLDivElement>('#playOptions'
 export const defenseCall = document.querySelector<HTMLDivElement>('#defenseCall')!
 export const defenseKicker = document.querySelector<HTMLElement>('#defenseKicker')!
 export const defenseOptions = document.querySelector<HTMLDivElement>('#defenseOptions')!
+export const conferenceSelect = document.querySelector<HTMLDivElement>('#conferenceSelect')!
+export const conferenceOptions = document.querySelector<HTMLDivElement>('#conferenceOptions')!
 export const divisionSelect = document.querySelector<HTMLDivElement>('#divisionSelect')!
+export const divisionSelectKicker = document.querySelector<HTMLElement>('#divisionSelectKicker')!
 export const divisionOptions = document.querySelector<HTMLDivElement>('#divisionOptions')!
+export const divisionSelectBack = document.querySelector<HTMLButtonElement>('#divisionSelectBack')!
 export const teamSelect = document.querySelector<HTMLDivElement>('#teamSelect')!
 export const teamSelectKicker = document.querySelector<HTMLElement>('#teamSelectKicker')!
 export const teamOptions = document.querySelector<HTMLDivElement>('#teamOptions')!

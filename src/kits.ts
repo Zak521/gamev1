@@ -126,6 +126,60 @@ export const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     pantStripe: [TEAMS.buccaneers.primary, TEAMS.buccaneers.accent],
     helmetStripe: [0xff7900, TEAMS.buccaneers.accent],
   },
+  // Baltimore: purple helmet with the black facemask and gold "B" (see
+  // ravensBDecalTexture), purple pants with a black-gold stripe, white
+  // numbers, purple-and-black jersey stripes.
+  ravens: {
+    helmet: TEAMS.ravens.primary,
+    helmetMetal: 0.3,
+    facemask: 0x000000,
+    pants: TEAMS.ravens.primary,
+    numberColor: '#ffffff',
+    band: TEAMS.ravens.primary,
+    line: TEAMS.ravens.accent,
+    pantStripe: [0x000000, TEAMS.ravens.accent],
+  },
+  // Cincinnati: orange helmet with the black-orange tiger-stripe crown and
+  // black facemask — no separate side logo, same as the real thing — black
+  // pants, white numbers, black-and-orange jersey stripes.
+  bengals: {
+    helmet: TEAMS.bengals.primary,
+    helmetMetal: 0.15,
+    facemask: 0x000000,
+    pants: 0x000000,
+    numberColor: '#ffffff',
+    band: TEAMS.bengals.primary,
+    line: 0x000000,
+    pantStripe: [TEAMS.bengals.primary, 0x000000],
+    helmetStripe: [0x000000, TEAMS.bengals.primary],
+  },
+  // Cleveland: solid orange helmet with no logo — a Browns tradition since
+  // 1946 — and a brown facemask, white pants with a brown-orange stripe,
+  // white numbers, brown-and-orange jersey stripes.
+  browns: {
+    helmet: TEAMS.browns.accent,
+    helmetMetal: 0.2,
+    facemask: TEAMS.browns.primary,
+    pants: 0xffffff,
+    numberColor: '#ffffff',
+    band: TEAMS.browns.primary,
+    line: TEAMS.browns.accent,
+    pantStripe: [TEAMS.browns.primary, TEAMS.browns.accent],
+  },
+  // Pittsburgh: black helmet with the gold facemask and the Steelmark on one
+  // side only — the NFL's original single-sided decal, unchanged since 1962
+  // (see the singleSided flag on the decal below) — black pants with a gold
+  // stripe, gold numbers, black-and-gold jersey stripes.
+  steelers: {
+    helmet: TEAMS.steelers.primary,
+    helmetMetal: 0.25,
+    facemask: TEAMS.steelers.accent,
+    pants: TEAMS.steelers.primary,
+    numberColor: '#ffb612',
+    band: TEAMS.steelers.primary,
+    line: TEAMS.steelers.accent,
+    pantStripe: [TEAMS.steelers.primary, TEAMS.steelers.accent],
+  },
 }
 
 export const kitMat = (color: number, roughness = 0.5) => new THREE.MeshStandardMaterial({ color, roughness })
