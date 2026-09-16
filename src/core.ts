@@ -141,7 +141,7 @@ export const isRunId = (id: PlayId | null): id is RunPlayId => !!id && (RUN_IDS 
 export { END_ZONE_DEPTH, USER_TWENTY_Z } from './gameMath.ts'
 
 // Game-structure tunables (see plan: Rules & game structure).
-export const QUARTER_SECONDS = 120
+export const QUARTER_SECONDS = 300
 export const OT_SECONDS = 180
 export const INTER_PLAY_RUNOFF = 25
 export const PLAY_CLOCK_SECONDS = 40
@@ -427,9 +427,13 @@ app.innerHTML = `
         <div class="score-bug-info">
           <span class="score-bug-clock"><span id="quarter">1st</span> &middot; <span id="clock">5:00</span></span>
           <span class="score-bug-dd"><span id="down">1st &amp; 10</span> &middot; <span id="yardsLabel">Ball on</span> <span id="yards">OWN 20</span></span>
+          <span class="score-bug-dd">TO <span id="timeoutsUser">3</span>-<span id="timeoutsOpponent">3</span></span>
         </div>
       </div>
       <div class="status-panel"><span id="statusText">Break through the defense!</span></div>
+      <div id="timeoutPanel" class="timeout-panel is-hidden">
+        <button id="timeoutButton" type="button">Call Timeout</button>
+      </div>
       <div id="kickMeter" class="kick-meter is-hidden" aria-live="polite">
         <span id="kickPrompt">Press Space to kick</span>
         <div class="kick-track"><div id="kickFill" class="kick-fill"></div><i class="kick-sweet-spot"></i></div>
@@ -519,6 +523,10 @@ export const downEl = document.querySelector<HTMLElement>('#down')!
 export const quarterEl = document.querySelector<HTMLElement>('#quarter')!
 export const clockEl = document.querySelector<HTMLElement>('#clock')!
 export const statusText = document.querySelector<HTMLElement>('#statusText')!
+export const timeoutsUserEl = document.querySelector<HTMLElement>('#timeoutsUser')!
+export const timeoutsOpponentEl = document.querySelector<HTMLElement>('#timeoutsOpponent')!
+export const timeoutPanel = document.querySelector<HTMLDivElement>('#timeoutPanel')!
+export const timeoutButton = document.querySelector<HTMLButtonElement>('#timeoutButton')!
 export const kickMeter = document.querySelector<HTMLDivElement>('#kickMeter')!
 export const kickPrompt = document.querySelector<HTMLElement>('#kickPrompt')!
 export const kickFill = document.querySelector<HTMLDivElement>('#kickFill')!
@@ -628,6 +636,20 @@ export const state = {
   clockRunning: false,
   clockEventHandled: false,
   lastPlayStoppedClock: true,
+  // Timeouts left this half (two in overtime) — see callTimeout().
+  timeoutsUser: 3,
+  timeoutsOpponent: 3,
+  // Set the instant the game clock crosses 2:00 in the 2nd/4th quarter (or
+  // overtime) during a live play; taken once that play ends, then latched so
+  // it can't fire twice in the same half. Reset each half in startGame/halftime.
+  twoMinuteWarningPending: false,
+  twoMinuteWarningGiven: false,
+  // Guards the once-per-stoppage two-minute-warning/opponent-timeout check in
+  // tickClocks from re-evaluating every frame you sit on a menu.
+  clockStopChecked: false,
+  // Whether the current defensive series is the first down of a fresh
+  // possession — set by startDefensiveSeries, consumed by snapDefense.
+  defenseIsNewSeries: true,
   gameOver: false,
   // Guards the season record from being counted twice on one final whistle.
   recorded: false,

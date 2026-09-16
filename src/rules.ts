@@ -68,6 +68,9 @@ import {
   teamSelectBack,
   teamSelectKicker,
   teammates,
+  timeoutPanel,
+  timeoutsOpponentEl,
+  timeoutsUserEl,
   yardsEl,
   yardsLabelEl,
 } from './core.ts'
@@ -114,11 +117,11 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
   state.passTarget = null
   state.playTime = 0
   state.clockEventHandled = false
-  // Runoff between opponent snaps if their last play kept the clock alive.
-  if (!newSeries && !state.lastPlayStoppedClock && state.gameClock > INTER_PLAY_RUNOFF + 6) {
-    state.gameClock = Math.max(0, state.gameClock - INTER_PLAY_RUNOFF)
-  }
-  state.lastPlayStoppedClock = false
+  // Remembered for snapDefense(): whether this is the first down of a fresh
+  // series (kickoff/turnover/a return that just ended), which never eats a
+  // runoff — and, unlike here, checked only once you actually commit to a
+  // defensive call, so a timeout called from this menu still has time to work.
+  state.defenseIsNewSeries = newSeries
   // The current down's line of scrimmage — refreshed on every snap, not just
   // the start of a series, so it stays a correct fallback spot even on a play
   // with no ball carrier yet (an incomplete pass, a sack).
@@ -380,6 +383,11 @@ function halftime() {
   state.playClock = PLAY_CLOCK_SECONDS
   state.clockEventHandled = false
   state.running = false
+  // Timeouts and the two-minute warning both reset fresh for the second half.
+  state.timeoutsUser = 3
+  state.timeoutsOpponent = 3
+  state.twoMinuteWarningPending = false
+  state.twoMinuteWarningGiven = false
   // Whoever did NOT receive the opening kickoff gets the ball out of the half.
   const receiving = state.firstPossession === 'offense' ? 'defense' : 'offense'
   statusText.textContent = 'Second-half kickoff.'
@@ -395,6 +403,11 @@ function endGame() {
     state.playClock = PLAY_CLOCK_SECONDS
     state.clockEventHandled = false
     state.running = false
+    // The NFL gives each team two timeouts per overtime period.
+    state.timeoutsUser = 2
+    state.timeoutsOpponent = 2
+    state.twoMinuteWarningPending = false
+    state.twoMinuteWarningGiven = false
     statusText.textContent = 'OVERTIME — next score wins.'
     updateHud()
     const receiving = Math.random() < 0.5 ? 'offense' : 'defense'
@@ -470,6 +483,11 @@ export function startGame() {
   state.onsideKick = false
   state.returning = false
   state.isReturnPlay = false
+  state.timeoutsUser = 3
+  state.timeoutsOpponent = 3
+  state.twoMinuteWarningPending = false
+  state.twoMinuteWarningGiven = false
+  state.clockStopChecked = false
   clearKickBlockers()
   state.stamina = 1
   state.gassed = false
@@ -481,6 +499,7 @@ export function startGame() {
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
   kickoffCall.classList.add('is-hidden')
+  timeoutPanel.classList.add('is-hidden')
   conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
@@ -505,6 +524,7 @@ export function openTeamSelect() {
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
   kickoffCall.classList.add('is-hidden')
+  timeoutPanel.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
   renderConferenceOptions()
@@ -1173,6 +1193,13 @@ export function renderDefenseOptions() {
 // The player picks a defensive call, which sets pursuit tuning, then the ball is snapped.
 function snapDefense(call: DefenseCall) {
   if (state.gameOver || state.possession !== 'defense') return
+  // Runoff between opponent snaps if their last play kept the clock alive —
+  // checked here, at the moment you commit to a call, so a timeout called
+  // from the defense menu still has a chance to head it off.
+  if (!state.defenseIsNewSeries && !state.lastPlayStoppedClock && state.gameClock > INTER_PLAY_RUNOFF + 6) {
+    state.gameClock = Math.max(0, state.gameClock - INTER_PLAY_RUNOFF)
+  }
+  state.lastPlayStoppedClock = false
   state.defenseCall = call
   defenseCall.classList.add('is-hidden')
   state.playTime = 0
@@ -1341,6 +1368,18 @@ export function updateHud() {
   oppChipEl.style.background = cssHex(TEAMS[state.opponentTeam].primary)
   quarterEl.textContent = state.quarter >= 5 ? 'OT' : ordinal(state.quarter)
   clockEl.textContent = formatClock(state.gameClock)
+  timeoutsUserEl.textContent = String(state.timeoutsUser)
+  timeoutsOpponentEl.textContent = String(state.timeoutsOpponent)
+  // Only offer a timeout when it would actually do something: between plays,
+  // with one to spend, and the next snap would otherwise eat a runoff (the
+  // first down of a fresh defensive series never does, whatever the flag says).
+  const runoffAtStake = state.possession === 'defense' && !state.running
+    ? !state.defenseIsNewSeries && !state.lastPlayStoppedClock
+    : !state.lastPlayStoppedClock
+  const canCallTimeout = !state.gameOver && !state.running && !state.twoPointActive &&
+    state.timeoutsUser > 0 && runoffAtStake &&
+    (!playCall.classList.contains('is-hidden') || !defenseCall.classList.contains('is-hidden'))
+  timeoutPanel.classList.toggle('is-hidden', !canCallTimeout)
   updateScoreboard()
   // While a play is live the marker holds at the snap value; it updates only
   // after the whistle, when the ball is spotted where the play ended.
@@ -1430,6 +1469,17 @@ export function tickClocks(delta: number) {
   if (state.running) {
     // Game clock runs during a live play.
     state.gameClock = Math.max(0, state.gameClock - delta)
+    state.clockStopChecked = false
+    // The two-minute warning doesn't interrupt a live play — it's noted the
+    // instant the clock crosses 2:00 in the 2nd/4th quarter (or overtime),
+    // then takes effect once this play is over, same as a real stoppage.
+    if (
+      !state.twoMinuteWarningGiven && !state.twoMinuteWarningPending &&
+      (state.quarter === 2 || state.quarter === 4 || state.quarter >= 5) &&
+      state.gameClock <= 120
+    ) {
+      state.twoMinuteWarningPending = true
+    }
     return
   }
   // Between plays the play clock winds down while the play-call menu is open.
@@ -1438,10 +1488,46 @@ export function tickClocks(delta: number) {
     playCallKicker.textContent = `Offense · ${downAndDistance()} · Play clock ${Math.ceil(state.playClock)}`
     if (state.playClock <= 0) delayOfGame()
   }
+  // Evaluated exactly once per dead-ball stoppage (reset the instant the
+  // next play goes live, above) — never repeated across frames spent
+  // sitting on a menu, since the opponent's timeout use below is a roll.
+  if (!state.clockStopChecked) {
+    state.clockStopChecked = true
+    if (state.twoMinuteWarningPending) {
+      state.twoMinuteWarningPending = false
+      state.twoMinuteWarningGiven = true
+      state.lastPlayStoppedClock = true
+      statusText.textContent = `TWO-MINUTE WARNING. ${statusText.textContent}`
+      updateHud()
+    } else if (
+      state.quarter >= 4 && !state.lastPlayStoppedClock && state.timeoutsOpponent > 0 &&
+      state.opponentScore < state.score && state.gameClock > 0 && state.gameClock < 120 &&
+      Math.random() < 0.7
+    ) {
+      // Mirrors a trailing real-NFL team burning a timeout late to keep the
+      // clock (and their own hopes) alive.
+      state.timeoutsOpponent -= 1
+      state.lastPlayStoppedClock = true
+      statusText.textContent = `Opponent calls a timeout. ${statusText.textContent}`
+      updateHud()
+    }
+  }
   // A quarter that expired mid-play is resolved once the ball is dead.
   if (state.gameClock <= 0 && !state.clockEventHandled) {
     handleClockExpired()
   }
+}
+
+// The offense's own timeout: available from the play-call or defense-call
+// menu whenever the next snap would otherwise eat the usual huddle runoff.
+// Stops the clock for that snap and spends one of your three per half (two
+// in overtime), same as the NFL.
+export function callTimeout() {
+  if (state.gameOver || state.running || state.lastPlayStoppedClock || state.timeoutsUser <= 0) return
+  state.timeoutsUser -= 1
+  state.lastPlayStoppedClock = true
+  statusText.textContent = `TIMEOUT. Clock stopped — ${state.timeoutsUser} left. ${statusText.textContent}`
+  updateHud()
 }
 
 function delayOfGame() {

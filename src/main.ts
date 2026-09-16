@@ -16,6 +16,7 @@ import {
   staminaFill,
   staminaMeter,
   state,
+  timeoutButton,
 } from './core.ts'
 import type { PlayTab } from './core.ts'
 import {
@@ -36,6 +37,7 @@ import {
 } from './world.ts'
 import { createPlayerView, updateKickBlockers } from './entities.ts'
 import {
+  callTimeout,
   chooseKickoff,
   goForTwo,
   openTeamSelect,
@@ -199,4 +201,5 @@ kickoffOnsideButton.addEventListener('click', () => {
   if (state.gameOver) return
   chooseKickoff(true)
 })
+timeoutButton.addEventListener('click', () => callTimeout())
 requestAnimationFrame(frame)
