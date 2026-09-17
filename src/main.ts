@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import './style.css'
 import {
+  audibleButton,
   canvas,
   coinTossKickButton,
   coinTossReceiveButton,
@@ -15,6 +16,7 @@ import {
   playTabs,
   receivers,
   resetButton,
+  snapButton,
   staminaFill,
   staminaMeter,
   state,
@@ -39,9 +41,11 @@ import {
 } from './world.ts'
 import { createPlayerView, updateKickBlockers } from './entities.ts'
 import {
+  audible,
   callTimeout,
   chooseCoinToss,
   chooseKickoff,
+  confirmSnap,
   goForTwo,
   openTeamSelect,
   renderDefenseOptions,
@@ -209,4 +213,6 @@ kickoffOnsideButton.addEventListener('click', () => {
   chooseKickoff(true)
 })
 timeoutButton.addEventListener('click', () => callTimeout())
+snapButton.addEventListener('click', () => confirmSnap())
+audibleButton.addEventListener('click', () => audible())
 requestAnimationFrame(frame)

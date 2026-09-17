@@ -313,6 +313,21 @@ function hornPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: numb
   ctx.restore()
 }
 
+// A regular 5-pointed star centred at (cx, cy), alternating between the outer
+// and inner radius — used for the Cowboys' star mark.
+function starPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, outerR: number, innerR: number) {
+  ctx.beginPath()
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? outerR : innerR
+    const angle = (Math.PI / 5) * i - Math.PI / 2
+    const x = cx + r * Math.cos(angle)
+    const y = cy + r * Math.sin(angle)
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.closePath()
+}
+
 function paintHorns(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, pair: boolean, fill: string, stroke: string, lineWidth: number) {
   ctx.fillStyle = fill
   ctx.strokeStyle = stroke
@@ -520,6 +535,84 @@ function ravensBDecalTexture() {
   return ravensBDecalTextureCache
 }
 
+// Dallas Cowboys helmet mark: the navy star, outlined in white.
+let cowboysStarDecalTextureCache: THREE.CanvasTexture | null = null
+function cowboysStarDecalTexture() {
+  if (cowboysStarDecalTextureCache) return cowboysStarDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 12
+  ctx.strokeStyle = '#f4f4f0'
+  ctx.fillStyle = '#041e42'
+  starPath(ctx, 128, 128, 104, 40)
+  ctx.fill()
+  ctx.stroke()
+  cowboysStarDecalTextureCache = new THREE.CanvasTexture(c)
+  return cowboysStarDecalTextureCache
+}
+
+// Philadelphia Eagles helmet mark: the wishbone "E" — white, outlined in black.
+let eaglesEDecalTextureCache: THREE.CanvasTexture | null = null
+function eaglesEDecalTexture() {
+  if (eaglesEDecalTextureCache) return eaglesEDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 30
+  ctx.strokeStyle = '#000000'
+  ctx.strokeText('E', 128, 146)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillText('E', 128, 146)
+  eaglesEDecalTextureCache = new THREE.CanvasTexture(c)
+  return eaglesEDecalTextureCache
+}
+
+// New York Giants helmet mark: the interlocking "NY" — red, outlined in white.
+let giantsNYDecalTextureCache: THREE.CanvasTexture | null = null
+function giantsNYDecalTexture() {
+  if (giantsNYDecalTextureCache) return giantsNYDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 150px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 18
+  ctx.strokeStyle = '#f8fafc'
+  ctx.strokeText('NY', 128, 138)
+  ctx.fillStyle = '#a71930'
+  ctx.fillText('NY', 128, 138)
+  giantsNYDecalTextureCache = new THREE.CanvasTexture(c)
+  return giantsNYDecalTextureCache
+}
+
+// Washington Commanders helmet mark: the wishbone "W" — gold, outlined in black.
+let commandersWDecalTextureCache: THREE.CanvasTexture | null = null
+function commandersWDecalTexture() {
+  if (commandersWDecalTextureCache) return commandersWDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#000000'
+  ctx.strokeText('W', 128, 146)
+  ctx.fillStyle = '#ffb612'
+  ctx.fillText('W', 128, 146)
+  commandersWDecalTextureCache = new THREE.CanvasTexture(c)
+  return commandersWDecalTextureCache
+}
+
 // A single hypocycloid "astroid" — the puffy four-pointed shape used three-up
 // in the Steelers' Steelmark badge — filled and outlined at (cx, cy) with
 // radius r.
@@ -640,6 +733,86 @@ function titansTDecalTexture() {
   return titansTDecalTextureCache
 }
 
+// Buffalo Bills helmet mark: the wishbone "B" — royal blue, outlined in red.
+let billsBDecalTextureCache: THREE.CanvasTexture | null = null
+function billsBDecalTexture() {
+  if (billsBDecalTextureCache) return billsBDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#c60c30'
+  ctx.strokeText('B', 128, 146)
+  ctx.fillStyle = '#00338d'
+  ctx.fillText('B', 128, 146)
+  billsBDecalTextureCache = new THREE.CanvasTexture(c)
+  return billsBDecalTextureCache
+}
+
+// Miami Dolphins helmet mark: the wishbone "D" — white, outlined in navy.
+let dolphinsDDecalTextureCache: THREE.CanvasTexture | null = null
+function dolphinsDDecalTexture() {
+  if (dolphinsDDecalTextureCache) return dolphinsDDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#005778'
+  ctx.strokeText('D', 128, 146)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillText('D', 128, 146)
+  dolphinsDDecalTextureCache = new THREE.CanvasTexture(c)
+  return dolphinsDDecalTextureCache
+}
+
+// New England Patriots helmet mark: the wishbone "P" — navy, outlined in red.
+let patriotsPDecalTextureCache: THREE.CanvasTexture | null = null
+function patriotsPDecalTexture() {
+  if (patriotsPDecalTextureCache) return patriotsPDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#c60c30'
+  ctx.strokeText('P', 128, 146)
+  ctx.fillStyle = '#002244'
+  ctx.fillText('P', 128, 146)
+  patriotsPDecalTextureCache = new THREE.CanvasTexture(c)
+  return patriotsPDecalTextureCache
+}
+
+// New York Jets helmet mark: the wishbone "J" — white, outlined in black.
+let jetsJDecalTextureCache: THREE.CanvasTexture | null = null
+function jetsJDecalTexture() {
+  if (jetsJDecalTextureCache) return jetsJDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#000000'
+  ctx.strokeText('J', 128, 146)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillText('J', 128, 146)
+  jetsJDecalTextureCache = new THREE.CanvasTexture(c)
+  return jetsJDecalTextureCache
+}
+
 function decalTextureForTeam(teamId: TeamId) {
   switch (teamId) {
     case 'vikings':
@@ -658,6 +831,14 @@ function decalTextureForTeam(teamId: TeamId) {
       return saintsFleurDecalTexture()
     case 'buccaneers':
       return buccaneersTBDecalTexture()
+    case 'cowboys':
+      return cowboysStarDecalTexture()
+    case 'eagles':
+      return eaglesEDecalTexture()
+    case 'giants':
+      return giantsNYDecalTexture()
+    case 'commanders':
+      return commandersWDecalTexture()
     case 'ravens':
       return ravensBDecalTexture()
     case 'steelers':
@@ -670,6 +851,14 @@ function decalTextureForTeam(teamId: TeamId) {
       return jaguarsJDecalTexture()
     case 'titans':
       return titansTDecalTexture()
+    case 'bills':
+      return billsBDecalTexture()
+    case 'dolphins':
+      return dolphinsDDecalTexture()
+    case 'patriots':
+      return patriotsPDecalTexture()
+    case 'jets':
+      return jetsJDecalTexture()
     case 'bengals':
     case 'browns':
       // Real Bengals (the tiger-stripe crown carries the look) and Browns

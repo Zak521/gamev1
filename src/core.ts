@@ -178,6 +178,10 @@ export type TeamId =
   | 'panthers'
   | 'saints'
   | 'buccaneers'
+  | 'cowboys'
+  | 'eagles'
+  | 'giants'
+  | 'commanders'
   | 'ravens'
   | 'bengals'
   | 'browns'
@@ -186,6 +190,10 @@ export type TeamId =
   | 'colts'
   | 'jaguars'
   | 'titans'
+  | 'bills'
+  | 'dolphins'
+  | 'patriots'
+  | 'jets'
 
 export type TeamInfo = {
   id: TeamId
@@ -270,6 +278,42 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
     accent: 0x34302b,
     nameplateText: '#ffd9a8',
   },
+  cowboys: {
+    id: 'cowboys',
+    name: 'COWBOYS',
+    abbr: 'DAL',
+    fullName: 'Dallas Cowboys',
+    primary: 0x041e42,
+    accent: 0x869397,
+    nameplateText: '#e3e9eb',
+  },
+  eagles: {
+    id: 'eagles',
+    name: 'EAGLES',
+    abbr: 'PHI',
+    fullName: 'Philadelphia Eagles',
+    primary: 0x004c54,
+    accent: 0xa5acaf,
+    nameplateText: '#d7f0ee',
+  },
+  giants: {
+    id: 'giants',
+    name: 'GIANTS',
+    abbr: 'NYG',
+    fullName: 'New York Giants',
+    primary: 0x0b2265,
+    accent: 0xa71930,
+    nameplateText: '#dbe4f7',
+  },
+  commanders: {
+    id: 'commanders',
+    name: 'COMMANDERS',
+    abbr: 'WAS',
+    fullName: 'Washington Commanders',
+    primary: 0x5a1414,
+    accent: 0xffb612,
+    nameplateText: '#ffe9a8',
+  },
   ravens: {
     id: 'ravens',
     name: 'RAVENS',
@@ -342,6 +386,42 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
     accent: 0x4b92db,
     nameplateText: '#cfe3fb',
   },
+  bills: {
+    id: 'bills',
+    name: 'BILLS',
+    abbr: 'BUF',
+    fullName: 'Buffalo Bills',
+    primary: 0x00338d,
+    accent: 0xc60c30,
+    nameplateText: '#dbe9ff',
+  },
+  dolphins: {
+    id: 'dolphins',
+    name: 'DOLPHINS',
+    abbr: 'MIA',
+    fullName: 'Miami Dolphins',
+    primary: 0x008e97,
+    accent: 0xf58220,
+    nameplateText: '#eafcfb',
+  },
+  patriots: {
+    id: 'patriots',
+    name: 'PATRIOTS',
+    abbr: 'NE',
+    fullName: 'New England Patriots',
+    primary: 0x002244,
+    accent: 0xc60c30,
+    nameplateText: '#dbe6f5',
+  },
+  jets: {
+    id: 'jets',
+    name: 'JETS',
+    abbr: 'NYJ',
+    fullName: 'New York Jets',
+    primary: 0x125740,
+    accent: 0x000000,
+    nameplateText: '#d7f2df',
+  },
 }
 
 export type ConferenceId = 'NFC' | 'AFC'
@@ -361,7 +441,7 @@ export const CONFERENCES: Record<ConferenceId, ConferenceInfo> = {
 
 export const CONFERENCE_IDS: ConferenceId[] = ['NFC', 'AFC']
 
-export type DivisionId = 'nfcNorth' | 'nfcSouth' | 'afcNorth' | 'afcSouth'
+export type DivisionId = 'nfcNorth' | 'nfcSouth' | 'nfcEast' | 'afcNorth' | 'afcSouth' | 'afcEast'
 
 export type DivisionInfo = {
   id: DivisionId
@@ -382,6 +462,12 @@ export const DIVISIONS: Record<DivisionId, DivisionInfo> = {
     conference: 'NFC',
     teamIds: ['falcons', 'panthers', 'saints', 'buccaneers'],
   },
+  nfcEast: {
+    id: 'nfcEast',
+    name: 'NFC East',
+    conference: 'NFC',
+    teamIds: ['cowboys', 'eagles', 'giants', 'commanders'],
+  },
   afcNorth: {
     id: 'afcNorth',
     name: 'AFC North',
@@ -393,6 +479,12 @@ export const DIVISIONS: Record<DivisionId, DivisionInfo> = {
     name: 'AFC South',
     conference: 'AFC',
     teamIds: ['texans', 'colts', 'jaguars', 'titans'],
+  },
+  afcEast: {
+    id: 'afcEast',
+    name: 'AFC East',
+    conference: 'AFC',
+    teamIds: ['bills', 'dolphins', 'patriots', 'jets'],
   },
 }
 
@@ -533,6 +625,14 @@ app.innerHTML = `
         </div>
         <div id="playOptions" class="play-options"></div>
       </div>
+      <div id="preSnapCall" class="play-call is-hidden" role="dialog" aria-label="Ready to snap">
+        <span id="preSnapKicker" class="play-call-kicker">Offense · 1st &amp; 10 · Play clock 40</span>
+        <h2 id="preSnapPlayName">Play</h2>
+        <div class="play-options">
+          <button id="snapButton" type="button"><strong>Snap the Ball</strong><span>Run it as called</span></button>
+          <button id="audibleButton" type="button"><strong>Audible</strong><span>Check out of it and call something else</span></button>
+        </div>
+      </div>
       <div id="defenseCall" class="play-call is-hidden" role="dialog" aria-label="Choose a defensive call">
         <span id="defenseKicker" class="play-call-kicker">Defense</span>
         <h2>Call your defense</h2>
@@ -594,6 +694,11 @@ export const playCall = document.querySelector<HTMLDivElement>('#playCall')!
 export const playCallKicker = document.querySelector<HTMLElement>('#playCallKicker')!
 export const playTabs = document.querySelector<HTMLDivElement>('#playTabs')!
 export const playOptions = document.querySelector<HTMLDivElement>('#playOptions')!
+export const preSnapCall = document.querySelector<HTMLDivElement>('#preSnapCall')!
+export const preSnapKicker = document.querySelector<HTMLElement>('#preSnapKicker')!
+export const preSnapPlayNameEl = document.querySelector<HTMLElement>('#preSnapPlayName')!
+export const snapButton = document.querySelector<HTMLButtonElement>('#snapButton')!
+export const audibleButton = document.querySelector<HTMLButtonElement>('#audibleButton')!
 export const defenseCall = document.querySelector<HTMLDivElement>('#defenseCall')!
 export const defenseKicker = document.querySelector<HTMLElement>('#defenseKicker')!
 export const defenseOptions = document.querySelector<HTMLDivElement>('#defenseOptions')!
@@ -641,6 +746,9 @@ export const state = {
   lastTime: 0,
   playTime: 0,
   selectedPlay: null as PlayId | null,
+  // The play called out of the huddle, lined up but not yet snapped — see
+  // presnap()/confirmSnap()/audible() in rules.ts. Null once the ball is live.
+  preSnapPlay: null as PlayId | null,
   throwing: false,
   afterCatch: false,
   passTime: 0,

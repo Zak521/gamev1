@@ -126,6 +126,59 @@ export const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     pantStripe: [TEAMS.buccaneers.primary, TEAMS.buccaneers.accent],
     helmetStripe: [0xff7900, TEAMS.buccaneers.accent],
   },
+  // Dallas: metallic-silver helmet with the navy-blue star and a thin
+  // navy-white-navy centre stripe, navy facemask, silver pants with a
+  // navy-white stripe, white numbers, navy-and-white jersey stripes.
+  cowboys: {
+    helmet: 0xc4c9cc,
+    helmetMetal: 0.55,
+    facemask: TEAMS.cowboys.primary,
+    pants: 0xc4c9cc,
+    numberColor: '#ffffff',
+    band: TEAMS.cowboys.primary,
+    line: 0xf4f4f0,
+    pantStripe: [TEAMS.cowboys.primary, 0xf4f4f0],
+    helmetStripe: [TEAMS.cowboys.primary, 0xf4f4f0],
+  },
+  // Philadelphia: midnight-green helmet with the white wings and grey
+  // facemask, black pants with a green-silver stripe, white numbers,
+  // green-and-silver jersey stripes.
+  eagles: {
+    helmet: TEAMS.eagles.primary,
+    helmetMetal: 0.2,
+    facemask: TEAMS.eagles.accent,
+    pants: 0x000000,
+    numberColor: '#ffffff',
+    band: TEAMS.eagles.primary,
+    line: TEAMS.eagles.accent,
+    pantStripe: [TEAMS.eagles.primary, TEAMS.eagles.accent],
+  },
+  // New York: blue helmet with the red-and-white "NY" and a grey facemask,
+  // white pants with a blue-red stripe, white numbers, blue-and-red jersey
+  // stripes.
+  giants: {
+    helmet: TEAMS.giants.primary,
+    helmetMetal: 0.3,
+    facemask: 0x9aa5ab,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.giants.primary,
+    line: TEAMS.giants.accent,
+    pantStripe: [TEAMS.giants.primary, TEAMS.giants.accent],
+  },
+  // Washington: burgundy helmet with the gold "W" and black facemask,
+  // burgundy pants with a gold stripe, gold numbers, burgundy-and-gold
+  // jersey stripes.
+  commanders: {
+    helmet: TEAMS.commanders.primary,
+    helmetMetal: 0.2,
+    facemask: 0x000000,
+    pants: TEAMS.commanders.primary,
+    numberColor: '#ffb612',
+    band: TEAMS.commanders.primary,
+    line: TEAMS.commanders.accent,
+    pantStripe: [TEAMS.commanders.primary, TEAMS.commanders.accent],
+  },
   // Baltimore: purple helmet with the black facemask and gold "B" (see
   // ravensBDecalTexture), purple pants with a black-gold stripe, white
   // numbers, purple-and-black jersey stripes.
@@ -231,6 +284,58 @@ export const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     line: TEAMS.titans.accent,
     pantStripe: [TEAMS.titans.primary, 0xc8102e],
     helmetStripe: [TEAMS.titans.accent, 0xc8102e],
+  },
+  // Buffalo: white helmet with the blue-and-red buffalo mark and a grey
+  // facemask, white pants with a blue-red stripe, white numbers,
+  // blue-and-red jersey stripes.
+  bills: {
+    helmet: 0xf4f4f0,
+    helmetMetal: 0.15,
+    facemask: 0x9aa5ab,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.bills.primary,
+    line: TEAMS.bills.accent,
+    pantStripe: [TEAMS.bills.primary, TEAMS.bills.accent],
+  },
+  // Miami: aqua helmet with the white-and-navy dolphin mark and a white
+  // facemask, white pants with an aqua-orange stripe, white numbers,
+  // aqua-and-orange jersey stripes.
+  dolphins: {
+    helmet: TEAMS.dolphins.primary,
+    helmetMetal: 0.25,
+    facemask: 0xf4f4f0,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.dolphins.primary,
+    line: TEAMS.dolphins.accent,
+    pantStripe: [TEAMS.dolphins.primary, TEAMS.dolphins.accent],
+  },
+  // New England: silver helmet with the navy-and-red "P" mark and a navy
+  // facemask, white pants with a navy-red stripe, white numbers,
+  // navy-and-red jersey stripes.
+  patriots: {
+    helmet: 0xb0b7bc,
+    helmetMetal: 0.5,
+    facemask: TEAMS.patriots.primary,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.patriots.primary,
+    line: TEAMS.patriots.accent,
+    pantStripe: [TEAMS.patriots.primary, TEAMS.patriots.accent],
+  },
+  // New York (Jets): Gotham-green helmet with the white "J" mark and a white
+  // facemask, white pants with a green stripe, white numbers, green-and-black
+  // jersey stripes.
+  jets: {
+    helmet: TEAMS.jets.primary,
+    helmetMetal: 0.2,
+    facemask: 0xf4f4f0,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.jets.primary,
+    line: TEAMS.jets.accent,
+    pantStripe: [TEAMS.jets.primary, TEAMS.jets.accent],
   },
 }
 

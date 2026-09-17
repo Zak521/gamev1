@@ -56,6 +56,9 @@ import {
   playCallKicker,
   playOptions,
   playTabs,
+  preSnapCall,
+  preSnapKicker,
+  preSnapPlayNameEl,
   quarterEl,
   randomBetween,
   receivers,
@@ -598,6 +601,8 @@ export function openTeamSelect() {
   releaseMouse()
   gameOverPanel.classList.add('is-hidden')
   playCall.classList.add('is-hidden')
+  preSnapCall.classList.add('is-hidden')
+  state.preSnapPlay = null
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
   kickoffCall.classList.add('is-hidden')
@@ -1216,6 +1221,7 @@ function resetDrive(startZ = USER_TWENTY_Z) {
   state.running = false
   state.playTime = 0
   state.selectedPlay = null
+  state.preSnapPlay = null
   state.throwing = false
   state.afterCatch = false
   state.passTime = 0
@@ -1250,13 +1256,52 @@ function lineUpForSnap() {
   buildOffensiveLine()
 }
 
+// The huddle call is in — line up at the ball and either snap it as called or
+// check out of it, same as an NFL quarterback reading the defense's look
+// before the snap. Only a run or pass goes through this pause; special-teams
+// plays (chosen straight off the special-teams tab) snap immediately.
+function presnap(play: PlayId) {
+  startAudio()
+  if (state.gameOver || state.possession !== 'offense') return
+  state.preSnapPlay = play
+  lineUpForSnap()
+  playCall.classList.add('is-hidden')
+  preSnapPlayNameEl.textContent = OFFENSE_PLAYBOOK.find((p) => p.id === play)?.name ?? 'Play'
+  preSnapKicker.textContent = `Offense · ${downAndDistance()} · Play clock ${Math.ceil(state.playClock)}`
+  preSnapCall.classList.remove('is-hidden')
+  updateHud()
+}
+
+// Snap it as called.
+export function confirmSnap() {
+  if (state.gameOver || !state.preSnapPlay) return
+  const play = state.preSnapPlay
+  state.preSnapPlay = null
+  preSnapCall.classList.add('is-hidden')
+  startPlay(play, true)
+}
+
+// The audible: check out of the called play and go back to the huddle to pick
+// something else. Same play clock keeps running — an audible costs you
+// thinking time, not a fresh 40 seconds.
+export function audible() {
+  if (state.gameOver || !state.preSnapPlay) return
+  state.preSnapPlay = null
+  preSnapCall.classList.add('is-hidden')
+  renderPlayOptions()
+  playCall.classList.remove('is-hidden')
+  updateHud()
+}
+
 export function renderPlayOptions() {
   playOptions.innerHTML = ''
   for (const play of OFFENSE_PLAYBOOK.filter((entry) => entry.tab === state.playTab)) {
     const button = document.createElement('button')
     button.type = 'button'
     button.innerHTML = `<strong>${play.name}</strong><span>${play.blurb}</span>`
-    button.addEventListener('click', () => startPlay(play.id))
+    // Special-teams plays snap immediately; a run or pass pauses at the line
+    // first so you can audible out of it.
+    button.addEventListener('click', () => (play.tab === 'special' ? startPlay(play.id) : presnap(play.id)))
     playOptions.appendChild(button)
   }
   for (const tab of playTabs.querySelectorAll<HTMLButtonElement>('button')) {
@@ -1359,7 +1404,10 @@ export function switchDefender() {
   statusText.textContent = 'Switched to the nearest defender!'
 }
 
-export function startPlay(play: PlayId) {
+// alreadyLinedUp is set when confirmSnap() calls this — presnap() already
+// lined up and built the defense for the look you audibled against (or
+// didn't), so don't roll a fresh one out from under you right at the snap.
+export function startPlay(play: PlayId, alreadyLinedUp = false) {
   startAudio()
   if (state.gameOver || (!state.running && state.possession !== 'offense')) return
   // No special teams on a two-point try — it's a run/pass snap from the 2.
@@ -1391,7 +1439,7 @@ export function startPlay(play: PlayId) {
   // Snapshot the down & distance so the HUD stays put until this play is over.
   state.snapDownText = downAndDistance()
   state.snapYardsText = describeSpot(state.ballOn)
-  lineUpForSnap()
+  if (!alreadyLinedUp) lineUpForSnap()
   if (runId) {
     while (receivers.length) world.remove(receivers.pop()!.mesh)
     // Each run differs by where you start and how long before you can accelerate.
@@ -1452,10 +1500,13 @@ export function updateHud() {
   timeoutsUserEl.textContent = String(state.timeoutsUser)
   timeoutsOpponentEl.textContent = String(state.timeoutsOpponent)
   // Only offer a timeout when it would actually do something: between plays,
-  // with one to spend, and the clock actually ticking toward the next snap.
+  // with one to spend, and the clock actually ticking toward the next snap —
+  // the huddle or the pre-snap look. The defense-call menu never has the
+  // clock running (see tickClocks), so a timeout there wouldn't stop
+  // anything and isn't offered.
   const canCallTimeout = !state.gameOver && !state.running && !state.twoPointActive &&
     state.timeoutsUser > 0 && !state.lastPlayStoppedClock &&
-    (!playCall.classList.contains('is-hidden') || !defenseCall.classList.contains('is-hidden'))
+    (!playCall.classList.contains('is-hidden') || !preSnapCall.classList.contains('is-hidden'))
   timeoutPanel.classList.toggle('is-hidden', !canCallTimeout)
   updateScoreboard()
   // While a play is live the marker holds at the snap value; it updates only
@@ -1551,13 +1602,16 @@ export function tickClocks(delta: number) {
   if (state.gameOver) return
   // The two-point try, like a PAT, is untimed.
   if (state.twoPointActive) return
-  const menuOpen = !playCall.classList.contains('is-hidden') || !defenseCall.classList.contains('is-hidden')
+  const offenseMenuOpen = !playCall.classList.contains('is-hidden') || !preSnapCall.classList.contains('is-hidden')
   // The game clock runs during a live play, and — same as the real NFL —
-  // keeps right on running through the huddle/play-call menu whenever the
-  // last play didn't stop it (an in-bounds tackle or a caught, in-bounds
-  // pass), only stopping for an incomplete pass, an out-of-bounds play, a
-  // score, a penalty, a timeout, or the two-minute warning.
-  if (state.running || (menuOpen && !state.lastPlayStoppedClock)) {
+  // keeps right on running through the offense's huddle/play-call menu and
+  // the pre-snap look before you snap or audible, whenever the last play
+  // didn't stop it (an in-bounds tackle or a caught, in-bounds pass), only
+  // stopping for an incomplete pass, an out-of-bounds play, a score, a
+  // penalty, a timeout, or the two-minute warning. The defense-call menu is
+  // the human taking their time to pick a call, not part of the simulated
+  // game clock, so it never runs while that's up.
+  if (state.running || (offenseMenuOpen && !state.lastPlayStoppedClock)) {
     state.gameClock = Math.max(0, state.gameClock - delta)
     if (state.running) state.clockStopChecked = false
     if (
@@ -1580,11 +1634,24 @@ export function tickClocks(delta: number) {
     }
   }
   if (state.running) return
-  // Between plays the play clock winds down while the play-call menu is open.
+  // Between plays the play clock winds down while the play-call menu — or the
+  // pre-snap look, once a play's been called — is open.
   if (!playCall.classList.contains('is-hidden')) {
     state.playClock = Math.max(0, state.playClock - delta)
     playCallKicker.textContent = `Offense · ${downAndDistance()} · Play clock ${Math.ceil(state.playClock)}`
     if (state.playClock <= 0) delayOfGame()
+  } else if (!preSnapCall.classList.contains('is-hidden')) {
+    state.playClock = Math.max(0, state.playClock - delta)
+    preSnapKicker.textContent = `Offense · ${downAndDistance()} · Play clock ${Math.ceil(state.playClock)}`
+    if (state.playClock <= 0) {
+      // Ran out of time deciding — same delay-of-game penalty as stalling in
+      // the huddle, back to a fresh play clock to call something else.
+      state.preSnapPlay = null
+      preSnapCall.classList.add('is-hidden')
+      renderPlayOptions()
+      playCall.classList.remove('is-hidden')
+      delayOfGame()
+    }
   }
   // Evaluated exactly once per dead-ball stoppage (reset the instant the
   // next play goes live, above) — never repeated across frames spent
