@@ -147,7 +147,6 @@ export { END_ZONE_DEPTH, USER_TWENTY_Z } from './gameMath.ts'
 // Game-structure tunables (see plan: Rules & game structure).
 export const QUARTER_SECONDS = 300
 export const OT_SECONDS = 180
-export const INTER_PLAY_RUNOFF = 25
 export const PLAY_CLOCK_SECONDS = 40
 
 // Movement feel tunables: a global speed trim on every player, and the
@@ -697,9 +696,6 @@ export const state = {
   // Guards the once-per-stoppage two-minute-warning/opponent-timeout check in
   // tickClocks from re-evaluating every frame you sit on a menu.
   clockStopChecked: false,
-  // Whether the current defensive series is the first down of a fresh
-  // possession — set by startDefensiveSeries, consumed by snapDefense.
-  defenseIsNewSeries: true,
   gameOver: false,
   // Guards the season record from being counted twice on one final whistle.
   recorded: false,

@@ -91,7 +91,9 @@ function frame(time: number) {
     staminaFill.style.backgroundColor = state.gassed ? '#ef4444' : state.stamina < 0.3 ? '#f59e0b' : '#22c55e'
     staminaMeter.classList.toggle('is-gassed', state.gassed)
   }
-  if (!state.gameOver && state.running) updateHud()
+  // Refreshed every frame, not just live plays, so the clock visibly ticks
+  // through the play-call menu whenever the last play didn't stop it.
+  if (!state.gameOver) updateHud()
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
 }

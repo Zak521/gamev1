@@ -216,6 +216,13 @@ export function updateGame(delta: number) {
   state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * MOVE_SCALE, -SIDELINE_X, SIDELINE_X)
   state.cameraZ -= depthDirection * speed
   state.ballOn = ballOnFromZ(state.cameraZ)
+  // Stepping on or past the sideline ends the play right there, dead-ball —
+  // same as a real out-of-bounds run, and finishRunPlay reads this same
+  // threshold to stop the clock for it.
+  if (Math.abs(state.playerX) >= OUT_OF_BOUNDS_X) {
+    finishRunPlay()
+    return
+  }
   // Retreating out the back of your own end zone — hitting the bleachers —
   // ends the play as a safety instead of letting you run out of the stadium.
   if (state.cameraZ >= USER_END_ZONE_BACK_Z) {
