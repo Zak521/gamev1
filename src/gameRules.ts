@@ -68,9 +68,9 @@ export function onsideRecoverChance(power: number) {
 }
 
 // The opponent's own automatic kickoff has no timing input to read, so its
-// net yardage is rolled instead: a majority go for touchbacks (`touchback`
-// true), matching real-world kickoff outcomes, and the rest come down in
-// the field of play for a live return.
+// net yardage is rolled instead: most (65%, set by the caller) come down in
+// the field of play for a live return, and the rest go for touchbacks
+// (`touchback` true) so the receiving team always has a real shot to return.
 export function opponentKickoffNetYards(touchback: boolean, roll: number) {
   return touchback ? 66 + roll * 20 : 40 + roll * 20
 }

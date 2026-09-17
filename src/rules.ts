@@ -16,6 +16,7 @@ import {
   USER_TWENTY_Z,
   ballOnFromZ,
   clockEl,
+  coinTossCall,
   conferenceOptions,
   conferenceSelect,
   defenseCall,
@@ -284,7 +285,7 @@ function simulateOpponentKickoff() {
   // "Own-yard" distance the kick travels, same convention as an opponent
   // drive (0 = their goal line): an onside kick only has to clear 10 yards,
   // a normal kick's net comes off the same touchback-weighted roll as before.
-  const netYards = attemptsOnside ? 10 : opponentKickoffNetYards(Math.random() < 0.62, Math.random())
+  const netYards = attemptsOnside ? 10 : opponentKickoffNetYards(Math.random() < 0.35, Math.random())
   const landingOwnYard = 35 + netYards
   const userYard = 100 - landingOwnYard
   const kickSpotZ = losZ(65) // the opponent's own 35, in user-perspective yards
@@ -474,6 +475,7 @@ function endGame() {
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
   kickoffCall.classList.add('is-hidden')
+  coinTossCall.classList.add('is-hidden')
   const won = state.score > state.opponentScore
   const tied = state.score === state.opponentScore
   const season = loadSeason()
@@ -546,19 +548,41 @@ export function startGame() {
   state.gassed = false
   kickMeter.classList.add('is-hidden')
   staminaMeter.classList.add('is-hidden')
-  state.firstPossession = Math.random() < 0.5 ? 'offense' : 'defense'
   gameOverPanel.classList.add('is-hidden')
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
   kickoffCall.classList.add('is-hidden')
+  coinTossCall.classList.add('is-hidden')
   timeoutPanel.classList.add('is-hidden')
   conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
+  if (Math.random() < 0.5) {
+    statusText.textContent = 'You won the toss…'
+    updateHud()
+    coinTossCall.classList.remove('is-hidden')
+    return
+  }
+  // Opponent won the toss — an automatic decision, same coin-flip odds a real
+  // team's choice comes down to between deferring and receiving.
+  state.firstPossession = Math.random() < 0.5 ? 'offense' : 'defense'
   statusText.textContent = state.firstPossession === 'offense'
-    ? 'You won the toss and will receive.'
+    ? 'Opponent won the toss and elected to kick — you will receive.'
     : 'Opponent won the toss and will receive.'
+  schedule(() => kickoff(state.firstPossession), 900)
+}
+
+// The player's choice from the coin-toss dialog after winning the flip:
+// receive first (and give the ball up to start the second half — see
+// halftime(), which flips whoever did NOT get the opening kickoff onto
+// offense) or kick first (and receive to start the second half instead).
+export function chooseCoinToss(receive: boolean) {
+  coinTossCall.classList.add('is-hidden')
+  state.firstPossession = receive ? 'offense' : 'defense'
+  statusText.textContent = receive
+    ? 'You won the toss and will receive.'
+    : 'You won the toss and elected to kick.'
   schedule(() => kickoff(state.firstPossession), 900)
 }
 
@@ -577,6 +601,7 @@ export function openTeamSelect() {
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
   kickoffCall.classList.add('is-hidden')
+  coinTossCall.classList.add('is-hidden')
   timeoutPanel.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')

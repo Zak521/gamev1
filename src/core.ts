@@ -507,6 +507,14 @@ app.innerHTML = `
           <button id="patGo" type="button"><strong>Go for Two</strong><span>One shot from the 2 — about 50/50, worth 2</span></button>
         </div>
       </div>
+      <div id="coinTossCall" class="play-call is-hidden" role="dialog" aria-label="Coin toss decision">
+        <span class="play-call-kicker">Coin Toss</span>
+        <h2>You won the toss — receive or kick?</h2>
+        <div class="play-options">
+          <button id="coinTossReceive" type="button"><strong>Receive</strong><span>Take the ball first — opponent gets it to start the 2nd half</span></button>
+          <button id="coinTossKick" type="button"><strong>Kick</strong><span>Kick it away — you'll receive to start the 2nd half</span></button>
+        </div>
+      </div>
       <div id="kickoffCall" class="play-call is-hidden" role="dialog" aria-label="Kickoff decision">
         <span class="play-call-kicker">Kickoff</span>
         <h2>You trail late — how do you want to kick it off?</h2>
@@ -607,6 +615,9 @@ export const newGameButton = document.querySelector<HTMLButtonElement>('#newGame
 export const patCall = document.querySelector<HTMLDivElement>('#patCall')!
 export const patKickButton = document.querySelector<HTMLButtonElement>('#patKick')!
 export const patGoButton = document.querySelector<HTMLButtonElement>('#patGo')!
+export const coinTossCall = document.querySelector<HTMLDivElement>('#coinTossCall')!
+export const coinTossReceiveButton = document.querySelector<HTMLButtonElement>('#coinTossReceive')!
+export const coinTossKickButton = document.querySelector<HTMLButtonElement>('#coinTossKick')!
 export const kickoffCall = document.querySelector<HTMLDivElement>('#kickoffCall')!
 export const kickoffNormalButton = document.querySelector<HTMLButtonElement>('#kickoffNormal')!
 export const kickoffOnsideButton = document.querySelector<HTMLButtonElement>('#kickoffOnside')!

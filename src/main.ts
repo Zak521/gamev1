@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import './style.css'
 import {
   canvas,
+  coinTossKickButton,
+  coinTossReceiveButton,
   keys,
   kickFill,
   kickoffNormalButton,
@@ -38,6 +40,7 @@ import {
 import { createPlayerView, updateKickBlockers } from './entities.ts'
 import {
   callTimeout,
+  chooseCoinToss,
   chooseKickoff,
   goForTwo,
   openTeamSelect,
@@ -195,6 +198,8 @@ patGoButton.addEventListener('click', () => {
   if (state.gameOver) return
   goForTwo()
 })
+coinTossReceiveButton.addEventListener('click', () => chooseCoinToss(true))
+coinTossKickButton.addEventListener('click', () => chooseCoinToss(false))
 kickoffNormalButton.addEventListener('click', () => {
   if (state.gameOver) return
   chooseKickoff(false)
