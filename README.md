@@ -47,9 +47,8 @@ The renderer and first-person input need a quick browser check after changes:
 
 - [ ] Start a game, click the field, and confirm mouse look captures/releases
   normally and the camera rotates without jumps or inverted axes.
-- [ ] Call a run or pass play, then confirm `Space` snaps the ball as called
-  and `Enter` audibles back to the play menu, both matching their on-screen
-  buttons.
+- [ ] Call a run or pass play and confirm it snaps immediately, lining up the
+  offense and defense for the play you picked.
 - [ ] Move with WASD and arrow keys; hold and release Shift/Space to confirm
   sprint, stamina drain, recovery, and normal movement all work.
 - [ ] On a passing play, throw with `1`/`2`/`3`, click a receiver, and use `Q`;
@@ -64,8 +63,9 @@ The renderer and first-person input need a quick browser check after changes:
 ## How to play
 
 Each possession starts with a play-call dialog. Pick an offensive play (or a
-defensive call when the opponent has the ball), then the ball is snapped and
-you take control of the quarterback or ball carrier in first person.
+defensive call when the opponent has the ball), and the ball snaps
+immediately — you take control of the quarterback or ball carrier in first
+person.
 
 ### Controls
 
@@ -74,10 +74,8 @@ you take control of the quarterback or ball carrier in first person.
 | Move | `W` `A` `S` `D` or arrow keys |
 | Sprint (burns stamina) | `Shift` or `Space` |
 | Look around | Move the mouse after clicking the field |
-| Snap the ball | `Space`, or click "Snap the Ball" |
-| Audible (check to a different play) | `Enter`, or click "Audible" |
 | Throw to a receiver | `1` / `2` / `3`, or click the receiver on screen |
-| Throw the ball away | `Q` |
+| Throw the ball away (once the play is live) | `Q` |
 | Time a kick | `Space` when the kick meter is up — stop it in the gold zone |
 
 On-screen **Left / Right / Sprint** buttons are provided for touch devices.

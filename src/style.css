@@ -294,11 +294,6 @@ button {
   box-shadow: 0 14px 26px rgba(217, 119, 6, 0.5);
 }
 
-#audibleButton {
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(29, 78, 216, 0.28));
-  border-color: rgba(56, 189, 248, 0.5);
-}
-
 .stamina-meter {
   position: absolute;
   z-index: 2;

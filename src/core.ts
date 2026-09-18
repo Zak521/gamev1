@@ -725,14 +725,6 @@ app.innerHTML = `
         </div>
         <div id="playOptions" class="play-options"></div>
       </div>
-      <div id="preSnapCall" class="play-call is-hidden" role="dialog" aria-label="Ready to snap">
-        <span id="preSnapKicker" class="play-call-kicker">Offense · 1st &amp; 10 · Play clock 40</span>
-        <h2 id="preSnapPlayName">Play</h2>
-        <div class="play-options">
-          <button id="snapButton" type="button"><strong>Snap the Ball</strong><span>Run it as called &mdash; Space</span></button>
-          <button id="audibleButton" type="button"><strong>Audible</strong><span>Check to a different play &mdash; Enter</span></button>
-        </div>
-      </div>
       <div id="defenseCall" class="play-call is-hidden" role="dialog" aria-label="Choose a defensive call">
         <span id="defenseKicker" class="play-call-kicker">Defense</span>
         <h2>Call your defense</h2>
@@ -794,11 +786,6 @@ export const playCall = document.querySelector<HTMLDivElement>('#playCall')!
 export const playCallKicker = document.querySelector<HTMLElement>('#playCallKicker')!
 export const playTabs = document.querySelector<HTMLDivElement>('#playTabs')!
 export const playOptions = document.querySelector<HTMLDivElement>('#playOptions')!
-export const preSnapCall = document.querySelector<HTMLDivElement>('#preSnapCall')!
-export const preSnapKicker = document.querySelector<HTMLElement>('#preSnapKicker')!
-export const preSnapPlayNameEl = document.querySelector<HTMLElement>('#preSnapPlayName')!
-export const snapButton = document.querySelector<HTMLButtonElement>('#snapButton')!
-export const audibleButton = document.querySelector<HTMLButtonElement>('#audibleButton')!
 export const defenseCall = document.querySelector<HTMLDivElement>('#defenseCall')!
 export const defenseKicker = document.querySelector<HTMLElement>('#defenseKicker')!
 export const defenseOptions = document.querySelector<HTMLDivElement>('#defenseOptions')!
@@ -846,9 +833,6 @@ export const state = {
   lastTime: 0,
   playTime: 0,
   selectedPlay: null as PlayId | null,
-  // The play called out of the huddle, lined up but not yet snapped — see
-  // presnap()/confirmSnap()/audible() in rules.ts. Null once the ball is live.
-  preSnapPlay: null as PlayId | null,
   throwing: false,
   afterCatch: false,
   passTime: 0,
