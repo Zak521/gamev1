@@ -934,6 +934,141 @@ function ninersSFDecalTexture() {
 // forward — action-green crown outlined in navy, a white hooked beak (flush
 // against a notch in the crown so it reads as one head, not two shapes), a
 // small crest tuft, and a white-ringed eye.
+// Denver Broncos helmet mark: the bronco head in profile, facing forward —
+// an orange head and neck outlined in navy, with a small navy eye and
+// nostril.
+let broncosHorseDecalTextureCache: THREE.CanvasTexture | null = null
+function broncosHorseDecalTexture() {
+  if (broncosHorseDecalTextureCache) return broncosHorseDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#fb4f14'
+  ctx.strokeStyle = '#002244'
+  ctx.lineWidth = 9
+  ctx.beginPath()
+  ctx.moveTo(58, 208)
+  ctx.quadraticCurveTo(50, 140, 74, 90)
+  ctx.quadraticCurveTo(90, 50, 130, 34)
+  ctx.quadraticCurveTo(150, 30, 160, 44)
+  ctx.quadraticCurveTo(148, 52, 140, 60)
+  ctx.quadraticCurveTo(172, 66, 198, 92)
+  ctx.quadraticCurveTo(222, 118, 216, 142)
+  ctx.quadraticCurveTo(206, 156, 184, 152)
+  ctx.quadraticCurveTo(170, 150, 160, 168)
+  ctx.quadraticCurveTo(140, 190, 108, 196)
+  ctx.quadraticCurveTo(84, 202, 58, 208)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Eye and nostril.
+  ctx.fillStyle = '#002244'
+  ctx.beginPath()
+  ctx.arc(150, 86, 7, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.ellipse(200, 128, 8, 5, -0.3, 0, Math.PI * 2)
+  ctx.fill()
+  broncosHorseDecalTextureCache = new THREE.CanvasTexture(c)
+  return broncosHorseDecalTextureCache
+}
+
+// Kansas City Chiefs helmet mark: the red arrowhead outlined in white, with
+// the white "KC" lettering across the middle.
+let chiefsArrowheadDecalTextureCache: THREE.CanvasTexture | null = null
+function chiefsArrowheadDecalTexture() {
+  if (chiefsArrowheadDecalTextureCache) return chiefsArrowheadDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#e31837'
+  ctx.strokeStyle = '#f8fafc'
+  ctx.lineWidth = 12
+  ctx.beginPath()
+  ctx.moveTo(40, 80)
+  ctx.quadraticCurveTo(90, 50, 150, 60)
+  ctx.quadraticCurveTo(200, 70, 228, 128)
+  ctx.quadraticCurveTo(200, 186, 150, 196)
+  ctx.quadraticCurveTo(90, 206, 40, 176)
+  ctx.quadraticCurveTo(26, 150, 28, 128)
+  ctx.quadraticCurveTo(26, 104, 40, 80)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = '#f8fafc'
+  ctx.font = 'bold 76px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('KC', 122, 130)
+  chiefsArrowheadDecalTextureCache = new THREE.CanvasTexture(c)
+  return chiefsArrowheadDecalTextureCache
+}
+
+// Las Vegas Raiders helmet mark: the black shield with crossed silver
+// swords — a simplified take on the Raider shield.
+let raidersShieldDecalTextureCache: THREE.CanvasTexture | null = null
+function raidersShieldDecalTexture() {
+  if (raidersShieldDecalTextureCache) return raidersShieldDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#000000'
+  ctx.strokeStyle = '#a5acaf'
+  ctx.lineWidth = 10
+  ctx.beginPath()
+  ctx.moveTo(128, 30)
+  ctx.quadraticCurveTo(190, 40, 210, 70)
+  ctx.quadraticCurveTo(216, 130, 190, 180)
+  ctx.quadraticCurveTo(160, 216, 128, 232)
+  ctx.quadraticCurveTo(96, 216, 66, 180)
+  ctx.quadraticCurveTo(40, 130, 46, 70)
+  ctx.quadraticCurveTo(66, 40, 128, 30)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  ctx.lineCap = 'round'
+  ctx.lineWidth = 8
+  ctx.beginPath()
+  ctx.moveTo(70, 60)
+  ctx.lineTo(186, 204)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(186, 60)
+  ctx.lineTo(70, 204)
+  ctx.stroke()
+  raidersShieldDecalTextureCache = new THREE.CanvasTexture(c)
+  return raidersShieldDecalTextureCache
+}
+
+// Los Angeles Chargers helmet mark: the gold lightning bolt outlined in
+// navy.
+let chargersBoltDecalTextureCache: THREE.CanvasTexture | null = null
+function chargersBoltDecalTexture() {
+  if (chargersBoltDecalTextureCache) return chargersBoltDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#ffc20e'
+  ctx.strokeStyle = '#002a5e'
+  ctx.lineWidth = 8
+  ctx.beginPath()
+  ctx.moveTo(150, 18)
+  ctx.lineTo(84, 132)
+  ctx.lineTo(128, 132)
+  ctx.lineTo(78, 238)
+  ctx.lineTo(184, 100)
+  ctx.lineTo(138, 100)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  chargersBoltDecalTextureCache = new THREE.CanvasTexture(c)
+  return chargersBoltDecalTextureCache
+}
+
 let seahawksHeadDecalTextureCache: THREE.CanvasTexture | null = null
 function seahawksHeadDecalTexture() {
   if (seahawksHeadDecalTextureCache) return seahawksHeadDecalTextureCache
@@ -1046,6 +1181,14 @@ function decalTextureForTeam(teamId: TeamId) {
       return ninersSFDecalTexture()
     case 'seahawks':
       return seahawksHeadDecalTexture()
+    case 'broncos':
+      return broncosHorseDecalTexture()
+    case 'chiefs':
+      return chiefsArrowheadDecalTexture()
+    case 'raiders':
+      return raidersShieldDecalTexture()
+    case 'chargers':
+      return chargersBoltDecalTexture()
     case 'bengals':
     case 'browns':
       // Real Bengals (the tiger-stripe crown carries the look) and Browns

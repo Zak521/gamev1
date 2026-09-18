@@ -388,6 +388,58 @@ export const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     line: TEAMS.seahawks.accent,
     pantStripe: [TEAMS.seahawks.primary, TEAMS.seahawks.accent],
   },
+  // Denver: navy helmet with the orange bronco-head mark and a steel-grey
+  // facemask, white pants with a navy-orange stripe, white numbers,
+  // navy-and-orange jersey stripes.
+  broncos: {
+    helmet: TEAMS.broncos.primary,
+    helmetMetal: 0.2,
+    facemask: 0x9aa5ab,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.broncos.primary,
+    line: TEAMS.broncos.accent,
+    pantStripe: [TEAMS.broncos.primary, TEAMS.broncos.accent],
+  },
+  // Kansas City: red helmet with the red-and-white arrowhead mark and a
+  // white facemask, white pants with a red-gold stripe, white numbers,
+  // red-and-gold jersey stripes.
+  chiefs: {
+    helmet: TEAMS.chiefs.primary,
+    helmetMetal: 0.25,
+    facemask: 0xf4f4f0,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.chiefs.primary,
+    line: TEAMS.chiefs.accent,
+    pantStripe: [TEAMS.chiefs.primary, TEAMS.chiefs.accent],
+  },
+  // Las Vegas: black helmet with the silver shield-and-swords mark and a
+  // silver facemask, silver pants year-round — a Raiders signature — white
+  // numbers, black-and-silver jersey stripes.
+  raiders: {
+    helmet: TEAMS.raiders.primary,
+    helmetMetal: 0.35,
+    facemask: TEAMS.raiders.accent,
+    pants: TEAMS.raiders.accent,
+    numberColor: '#ffffff',
+    band: TEAMS.raiders.primary,
+    line: TEAMS.raiders.accent,
+    pantStripe: [TEAMS.raiders.primary, TEAMS.raiders.primary],
+  },
+  // Los Angeles (Chargers): white helmet with the gold-and-navy lightning
+  // bolt mark and a navy facemask, white pants with a navy-powder-blue
+  // stripe, white numbers, powder-blue-and-gold jersey stripes.
+  chargers: {
+    helmet: 0xf4f4f0,
+    helmetMetal: 0.15,
+    facemask: 0x002a5e,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.chargers.primary,
+    line: TEAMS.chargers.accent,
+    pantStripe: [0x002a5e, TEAMS.chargers.primary],
+  },
 }
 
 export const kitMat = (color: number, roughness = 0.5) => new THREE.MeshStandardMaterial({ color, roughness })

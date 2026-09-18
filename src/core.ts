@@ -198,6 +198,10 @@ export type TeamId =
   | 'rams'
   | '49ers'
   | 'seahawks'
+  | 'broncos'
+  | 'chiefs'
+  | 'raiders'
+  | 'chargers'
 
 export type TeamInfo = {
   id: TeamId
@@ -462,6 +466,42 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
     accent: 0x69be28,
     nameplateText: '#dff5cb',
   },
+  broncos: {
+    id: 'broncos',
+    name: 'BRONCOS',
+    abbr: 'DEN',
+    fullName: 'Denver Broncos',
+    primary: 0x002244,
+    accent: 0xfb4f14,
+    nameplateText: '#ffd2b8',
+  },
+  chiefs: {
+    id: 'chiefs',
+    name: 'CHIEFS',
+    abbr: 'KC',
+    fullName: 'Kansas City Chiefs',
+    primary: 0xe31837,
+    accent: 0xffb81c,
+    nameplateText: '#ffe6a8',
+  },
+  raiders: {
+    id: 'raiders',
+    name: 'RAIDERS',
+    abbr: 'LV',
+    fullName: 'Las Vegas Raiders',
+    primary: 0x000000,
+    accent: 0xa5acaf,
+    nameplateText: '#e8eaec',
+  },
+  chargers: {
+    id: 'chargers',
+    name: 'CHARGERS',
+    abbr: 'LAC',
+    fullName: 'Los Angeles Chargers',
+    primary: 0x0080c6,
+    accent: 0xffc20e,
+    nameplateText: '#fff3c2',
+  },
 }
 
 export type ConferenceId = 'NFC' | 'AFC'
@@ -481,7 +521,15 @@ export const CONFERENCES: Record<ConferenceId, ConferenceInfo> = {
 
 export const CONFERENCE_IDS: ConferenceId[] = ['NFC', 'AFC']
 
-export type DivisionId = 'nfcNorth' | 'nfcSouth' | 'nfcEast' | 'nfcWest' | 'afcNorth' | 'afcSouth' | 'afcEast'
+export type DivisionId =
+  | 'nfcNorth'
+  | 'nfcSouth'
+  | 'nfcEast'
+  | 'nfcWest'
+  | 'afcNorth'
+  | 'afcSouth'
+  | 'afcEast'
+  | 'afcWest'
 
 export type DivisionInfo = {
   id: DivisionId
@@ -531,6 +579,12 @@ export const DIVISIONS: Record<DivisionId, DivisionInfo> = {
     name: 'AFC East',
     conference: 'AFC',
     teamIds: ['bills', 'dolphins', 'patriots', 'jets'],
+  },
+  afcWest: {
+    id: 'afcWest',
+    name: 'AFC West',
+    conference: 'AFC',
+    teamIds: ['broncos', 'chiefs', 'raiders', 'chargers'],
   },
 }
 
