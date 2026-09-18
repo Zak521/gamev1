@@ -14,6 +14,7 @@ import {
   TEAMS,
   USER_END_ZONE_BACK_Z,
   USER_TWENTY_Z,
+  audiblePanel,
   ballOnFromZ,
   clockEl,
   coinTossCall,
@@ -558,6 +559,7 @@ export function startGame() {
   kickoffCall.classList.add('is-hidden')
   coinTossCall.classList.add('is-hidden')
   timeoutPanel.classList.add('is-hidden')
+  audiblePanel.classList.add('is-hidden')
   conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
@@ -608,6 +610,7 @@ export function openTeamSelect() {
   kickoffCall.classList.add('is-hidden')
   coinTossCall.classList.add('is-hidden')
   timeoutPanel.classList.add('is-hidden')
+  audiblePanel.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
   renderConferenceOptions()
@@ -1508,6 +1511,10 @@ export function updateHud() {
     state.timeoutsUser > 0 && !state.lastPlayStoppedClock &&
     (!playCall.classList.contains('is-hidden') || !preSnapCall.classList.contains('is-hidden'))
   timeoutPanel.classList.toggle('is-hidden', !canCallTimeout)
+  // The audible button only does something once a play is locked in and
+  // you're looking at the pre-snap look — the same window the "Snap the
+  // Ball" button lives in.
+  audiblePanel.classList.toggle('is-hidden', preSnapCall.classList.contains('is-hidden'))
   updateScoreboard()
   // While a play is live the marker holds at the snap value; it updates only
   // after the whistle, when the ball is spotted where the play ended.

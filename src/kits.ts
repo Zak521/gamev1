@@ -337,6 +337,57 @@ export const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     line: TEAMS.jets.accent,
     pantStripe: [TEAMS.jets.primary, TEAMS.jets.accent],
   },
+  // Arizona: white helmet with the cardinal-red bird-head mark and black
+  // facemask, white pants with a red-black stripe, white numbers,
+  // red-and-black jersey stripes.
+  cardinals: {
+    helmet: 0xf4f4f0,
+    helmetMetal: 0.15,
+    facemask: 0x000000,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.cardinals.primary,
+    line: 0x000000,
+    pantStripe: [TEAMS.cardinals.primary, 0x000000],
+  },
+  // Los Angeles: royal-blue helmet with the gold curling ram horn and a
+  // matching blue facemask, white pants with a blue-gold stripe, white
+  // numbers, blue-and-gold jersey stripes.
+  rams: {
+    helmet: TEAMS.rams.primary,
+    helmetMetal: 0.3,
+    facemask: TEAMS.rams.primary,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.rams.primary,
+    line: TEAMS.rams.accent,
+    pantStripe: [TEAMS.rams.primary, TEAMS.rams.accent],
+  },
+  // San Francisco: metallic-gold helmet with the red-and-white "SF" oval and
+  // a grey facemask, gold pants, white numbers, red-and-gold jersey stripes.
+  '49ers': {
+    helmet: TEAMS['49ers'].accent,
+    helmetMetal: 0.45,
+    facemask: 0x9aa5ab,
+    pants: TEAMS['49ers'].accent,
+    numberColor: '#ffffff',
+    band: TEAMS['49ers'].primary,
+    line: TEAMS['49ers'].accent,
+    pantStripe: [TEAMS['49ers'].primary, TEAMS['49ers'].accent],
+  },
+  // Seattle: navy helmet with the action-green hawk-head mark and a lime
+  // facemask, navy pants with a green-grey stripe, white numbers,
+  // navy-and-green jersey stripes.
+  seahawks: {
+    helmet: TEAMS.seahawks.primary,
+    helmetMetal: 0.2,
+    facemask: TEAMS.seahawks.accent,
+    pants: TEAMS.seahawks.primary,
+    numberColor: '#ffffff',
+    band: TEAMS.seahawks.primary,
+    line: TEAMS.seahawks.accent,
+    pantStripe: [TEAMS.seahawks.primary, TEAMS.seahawks.accent],
+  },
 }
 
 export const kitMat = (color: number, roughness = 0.5) => new THREE.MeshStandardMaterial({ color, roughness })

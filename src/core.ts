@@ -194,6 +194,10 @@ export type TeamId =
   | 'dolphins'
   | 'patriots'
   | 'jets'
+  | 'cardinals'
+  | 'rams'
+  | '49ers'
+  | 'seahawks'
 
 export type TeamInfo = {
   id: TeamId
@@ -422,6 +426,42 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
     accent: 0x000000,
     nameplateText: '#d7f2df',
   },
+  cardinals: {
+    id: 'cardinals',
+    name: 'CARDINALS',
+    abbr: 'ARI',
+    fullName: 'Arizona Cardinals',
+    primary: 0x97233f,
+    accent: 0x000000,
+    nameplateText: '#f8fafc',
+  },
+  rams: {
+    id: 'rams',
+    name: 'RAMS',
+    abbr: 'LA',
+    fullName: 'Los Angeles Rams',
+    primary: 0x003594,
+    accent: 0xffa300,
+    nameplateText: '#ffe6b8',
+  },
+  '49ers': {
+    id: '49ers',
+    name: '49ERS',
+    abbr: 'SF',
+    fullName: 'San Francisco 49ers',
+    primary: 0xaa0000,
+    accent: 0xb3995d,
+    nameplateText: '#f5e6c8',
+  },
+  seahawks: {
+    id: 'seahawks',
+    name: 'SEAHAWKS',
+    abbr: 'SEA',
+    fullName: 'Seattle Seahawks',
+    primary: 0x002244,
+    accent: 0x69be28,
+    nameplateText: '#dff5cb',
+  },
 }
 
 export type ConferenceId = 'NFC' | 'AFC'
@@ -441,7 +481,7 @@ export const CONFERENCES: Record<ConferenceId, ConferenceInfo> = {
 
 export const CONFERENCE_IDS: ConferenceId[] = ['NFC', 'AFC']
 
-export type DivisionId = 'nfcNorth' | 'nfcSouth' | 'nfcEast' | 'afcNorth' | 'afcSouth' | 'afcEast'
+export type DivisionId = 'nfcNorth' | 'nfcSouth' | 'nfcEast' | 'nfcWest' | 'afcNorth' | 'afcSouth' | 'afcEast'
 
 export type DivisionInfo = {
   id: DivisionId
@@ -467,6 +507,12 @@ export const DIVISIONS: Record<DivisionId, DivisionInfo> = {
     name: 'NFC East',
     conference: 'NFC',
     teamIds: ['cowboys', 'eagles', 'giants', 'commanders'],
+  },
+  nfcWest: {
+    id: 'nfcWest',
+    name: 'NFC West',
+    conference: 'NFC',
+    teamIds: ['cardinals', 'rams', '49ers', 'seahawks'],
   },
   afcNorth: {
     id: 'afcNorth',
@@ -575,6 +621,9 @@ app.innerHTML = `
       <div id="timeoutPanel" class="timeout-panel is-hidden">
         <button id="timeoutButton" type="button">Call Timeout</button>
       </div>
+      <div id="audiblePanel" class="audible-panel is-hidden">
+        <button id="audibleButton" type="button">Audible</button>
+      </div>
       <div id="kickMeter" class="kick-meter is-hidden" aria-live="polite">
         <span id="kickPrompt">Press Space to kick</span>
         <div class="kick-track"><div id="kickFill" class="kick-fill"></div><i class="kick-sweet-spot"></i></div>
@@ -630,8 +679,8 @@ app.innerHTML = `
         <h2 id="preSnapPlayName">Play</h2>
         <div class="play-options">
           <button id="snapButton" type="button"><strong>Snap the Ball</strong><span>Run it as called</span></button>
-          <button id="audibleButton" type="button"><strong>Audible</strong><span>Check out of it and call something else</span></button>
         </div>
+        <small class="play-call-hint">Don't like the look? Hit Audible in the corner.</small>
       </div>
       <div id="defenseCall" class="play-call is-hidden" role="dialog" aria-label="Choose a defensive call">
         <span id="defenseKicker" class="play-call-kicker">Defense</span>
@@ -684,6 +733,7 @@ export const timeoutsUserEl = document.querySelector<HTMLElement>('#timeoutsUser
 export const timeoutsOpponentEl = document.querySelector<HTMLElement>('#timeoutsOpponent')!
 export const timeoutPanel = document.querySelector<HTMLDivElement>('#timeoutPanel')!
 export const timeoutButton = document.querySelector<HTMLButtonElement>('#timeoutButton')!
+export const audiblePanel = document.querySelector<HTMLDivElement>('#audiblePanel')!
 export const kickMeter = document.querySelector<HTMLDivElement>('#kickMeter')!
 export const kickPrompt = document.querySelector<HTMLElement>('#kickPrompt')!
 export const kickFill = document.querySelector<HTMLDivElement>('#kickFill')!

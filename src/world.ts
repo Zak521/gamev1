@@ -813,6 +813,185 @@ function jetsJDecalTexture() {
   return jetsJDecalTextureCache
 }
 
+// Arizona Cardinals helmet mark: a cardinal's head in profile, facing forward
+// — a rounded crimson head with a small crest, a black eye and an orange
+// hooked beak.
+let cardinalsHeadDecalTextureCache: THREE.CanvasTexture | null = null
+function cardinalsHeadDecalTexture() {
+  if (cardinalsHeadDecalTextureCache) return cardinalsHeadDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  // Head + neck.
+  ctx.fillStyle = '#97233f'
+  ctx.strokeStyle = '#000000'
+  ctx.lineWidth = 8
+  ctx.beginPath()
+  ctx.moveTo(70, 190)
+  ctx.quadraticCurveTo(48, 150, 56, 108)
+  ctx.quadraticCurveTo(64, 66, 108, 48)
+  ctx.quadraticCurveTo(146, 34, 168, 62)
+  ctx.quadraticCurveTo(182, 82, 168, 100)
+  ctx.quadraticCurveTo(150, 108, 150, 124)
+  ctx.quadraticCurveTo(150, 148, 128, 168)
+  ctx.quadraticCurveTo(108, 184, 96, 196)
+  ctx.quadraticCurveTo(82, 202, 70, 190)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Crest feather sweeping off the back of the head.
+  ctx.beginPath()
+  ctx.moveTo(112, 50)
+  ctx.quadraticCurveTo(96, 20, 122, 8)
+  ctx.quadraticCurveTo(126, 34, 138, 46)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Beak.
+  ctx.fillStyle = '#f2a03d'
+  ctx.beginPath()
+  ctx.moveTo(168, 66)
+  ctx.quadraticCurveTo(200, 74, 204, 92)
+  ctx.quadraticCurveTo(196, 102, 172, 98)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Eye.
+  ctx.fillStyle = '#000000'
+  ctx.beginPath()
+  ctx.arc(128, 88, 9, 0, Math.PI * 2)
+  ctx.fill()
+  cardinalsHeadDecalTextureCache = new THREE.CanvasTexture(c)
+  return cardinalsHeadDecalTextureCache
+}
+
+// Los Angeles Rams helmet mark: the gold curling ram horn, outlined in blue
+// with three ridge lines tracing the curl — a tapered horn sweeping from the
+// crown down into a tight spiral, matching the real logo's silhouette.
+let ramsHornDecalTextureCache: THREE.CanvasTexture | null = null
+function ramsHornDecalTexture() {
+  if (ramsHornDecalTextureCache) return ramsHornDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#ffa300'
+  ctx.strokeStyle = '#003594'
+  ctx.lineWidth = 10
+  ctx.beginPath()
+  ctx.moveTo(96, 26)
+  ctx.quadraticCurveTo(176, 34, 202, 96)
+  ctx.quadraticCurveTo(222, 148, 186, 190)
+  ctx.quadraticCurveTo(160, 220, 124, 208)
+  ctx.quadraticCurveTo(100, 198, 108, 174)
+  ctx.quadraticCurveTo(118, 154, 142, 160)
+  ctx.quadraticCurveTo(160, 164, 162, 146)
+  ctx.quadraticCurveTo(164, 124, 140, 112)
+  ctx.quadraticCurveTo(128, 106, 128, 92)
+  ctx.quadraticCurveTo(120, 60, 96, 40)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Ridge lines tracing the curl, echoing a real horn's growth rings.
+  ctx.lineWidth = 5
+  ctx.beginPath()
+  ctx.moveTo(112, 46)
+  ctx.quadraticCurveTo(150, 60, 168, 100)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(128, 78)
+  ctx.quadraticCurveTo(168, 96, 182, 138)
+  ctx.stroke()
+  ramsHornDecalTextureCache = new THREE.CanvasTexture(c)
+  return ramsHornDecalTextureCache
+}
+
+// San Francisco 49ers helmet mark: the red-and-white "SF" oval.
+let ninersSFDecalTextureCache: THREE.CanvasTexture | null = null
+function ninersSFDecalTexture() {
+  if (ninersSFDecalTextureCache) return ninersSFDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.beginPath()
+  ctx.ellipse(128, 128, 108, 80, 0, 0, Math.PI * 2)
+  ctx.fillStyle = '#aa0000'
+  ctx.fill()
+  ctx.lineWidth = 10
+  ctx.strokeStyle = '#b3995d'
+  ctx.stroke()
+  ctx.fillStyle = '#f8fafc'
+  ctx.font = 'bold 112px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('SF', 128, 140)
+  ninersSFDecalTextureCache = new THREE.CanvasTexture(c)
+  return ninersSFDecalTextureCache
+}
+
+// Seattle Seahawks helmet mark: a stylised hawk head in profile, facing
+// forward — action-green crown outlined in navy, a white hooked beak (flush
+// against a notch in the crown so it reads as one head, not two shapes), a
+// small crest tuft, and a white-ringed eye.
+let seahawksHeadDecalTextureCache: THREE.CanvasTexture | null = null
+function seahawksHeadDecalTexture() {
+  if (seahawksHeadDecalTextureCache) return seahawksHeadDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  // Crown + throat.
+  ctx.fillStyle = '#69be28'
+  ctx.strokeStyle = '#002244'
+  ctx.lineWidth = 8
+  ctx.beginPath()
+  ctx.moveTo(52, 150)
+  ctx.quadraticCurveTo(34, 96, 78, 60)
+  ctx.quadraticCurveTo(112, 32, 150, 40)
+  ctx.quadraticCurveTo(140, 56, 150, 72)
+  ctx.quadraticCurveTo(168, 78, 176, 96)
+  ctx.quadraticCurveTo(158, 98, 148, 110)
+  ctx.quadraticCurveTo(160, 126, 150, 142)
+  ctx.quadraticCurveTo(128, 168, 96, 182)
+  ctx.quadraticCurveTo(66, 194, 50, 182)
+  ctx.quadraticCurveTo(44, 168, 52, 150)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Crest tuft off the back of the crown.
+  ctx.beginPath()
+  ctx.moveTo(96, 36)
+  ctx.quadraticCurveTo(84, 14, 108, 6)
+  ctx.quadraticCurveTo(116, 26, 128, 34)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Hooked beak, white-on-navy so it reads against a navy helmet shell —
+  // flush against the notch in the crown outline above.
+  ctx.fillStyle = '#f8fafc'
+  ctx.beginPath()
+  ctx.moveTo(148, 110)
+  ctx.quadraticCurveTo(200, 96, 224, 122)
+  ctx.quadraticCurveTo(236, 144, 210, 160)
+  ctx.quadraticCurveTo(188, 170, 176, 150)
+  ctx.quadraticCurveTo(184, 128, 150, 142)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Eye, ringed in white for contrast against the green.
+  ctx.fillStyle = '#f8fafc'
+  ctx.beginPath()
+  ctx.arc(126, 84, 12, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#002244'
+  ctx.beginPath()
+  ctx.arc(129, 84, 6, 0, Math.PI * 2)
+  ctx.fill()
+  seahawksHeadDecalTextureCache = new THREE.CanvasTexture(c)
+  return seahawksHeadDecalTextureCache
+}
+
 function decalTextureForTeam(teamId: TeamId) {
   switch (teamId) {
     case 'vikings':
@@ -859,6 +1038,14 @@ function decalTextureForTeam(teamId: TeamId) {
       return patriotsPDecalTexture()
     case 'jets':
       return jetsJDecalTexture()
+    case 'cardinals':
+      return cardinalsHeadDecalTexture()
+    case 'rams':
+      return ramsHornDecalTexture()
+    case '49ers':
+      return ninersSFDecalTexture()
+    case 'seahawks':
+      return seahawksHeadDecalTexture()
     case 'bengals':
     case 'browns':
       // Real Bengals (the tiger-stripe crown carries the look) and Browns

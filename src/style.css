@@ -294,6 +294,32 @@ button {
   box-shadow: 0 14px 26px rgba(217, 119, 6, 0.5);
 }
 
+.audible-panel {
+  position: absolute;
+  z-index: 4;
+  left: 12px;
+  bottom: 16px;
+}
+.audible-panel.is-hidden { display: none; }
+.audible-panel button {
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #38bdf8, #1d4ed8);
+  color: white;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  padding: 10px 16px;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(29, 78, 216, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.audible-panel button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(29, 78, 216, 0.5);
+}
+
 .stamina-meter {
   position: absolute;
   z-index: 2;
@@ -349,6 +375,11 @@ button {
 .play-call p {
   margin: 0 0 8px;
   color: #dbeafe;
+}
+
+.play-call-hint {
+  color: #94a3b8;
+  font-size: 0.78rem;
 }
 
 .play-tabs {
