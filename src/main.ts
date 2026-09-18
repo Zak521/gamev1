@@ -126,6 +126,16 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault()
     return
   }
+  if (event.key === ' ' && state.preSnapPlay) {
+    confirmSnap()
+    event.preventDefault()
+    return
+  }
+  if (event.key === 'Enter' && state.preSnapPlay) {
+    audible()
+    event.preventDefault()
+    return
+  }
   if (['1', '2', '3'].includes(event.key) && state.running && !state.throwing) {
     const receiver = receivers[Number(event.key) - 1]
     if (receiver) throwTo(receiver)

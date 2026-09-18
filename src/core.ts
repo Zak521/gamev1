@@ -675,9 +675,6 @@ app.innerHTML = `
       <div id="timeoutPanel" class="timeout-panel is-hidden">
         <button id="timeoutButton" type="button">Call Timeout</button>
       </div>
-      <div id="audiblePanel" class="audible-panel is-hidden">
-        <button id="audibleButton" type="button">Audible</button>
-      </div>
       <div id="kickMeter" class="kick-meter is-hidden" aria-live="polite">
         <span id="kickPrompt">Press Space to kick</span>
         <div class="kick-track"><div id="kickFill" class="kick-fill"></div><i class="kick-sweet-spot"></i></div>
@@ -732,9 +729,9 @@ app.innerHTML = `
         <span id="preSnapKicker" class="play-call-kicker">Offense · 1st &amp; 10 · Play clock 40</span>
         <h2 id="preSnapPlayName">Play</h2>
         <div class="play-options">
-          <button id="snapButton" type="button"><strong>Snap the Ball</strong><span>Run it as called</span></button>
+          <button id="snapButton" type="button"><strong>Snap the Ball</strong><span>Run it as called &mdash; Space</span></button>
+          <button id="audibleButton" type="button"><strong>Audible</strong><span>Check to a different play &mdash; Enter</span></button>
         </div>
-        <small class="play-call-hint">Don't like the look? Hit Audible in the corner.</small>
       </div>
       <div id="defenseCall" class="play-call is-hidden" role="dialog" aria-label="Choose a defensive call">
         <span id="defenseKicker" class="play-call-kicker">Defense</span>
@@ -787,7 +784,6 @@ export const timeoutsUserEl = document.querySelector<HTMLElement>('#timeoutsUser
 export const timeoutsOpponentEl = document.querySelector<HTMLElement>('#timeoutsOpponent')!
 export const timeoutPanel = document.querySelector<HTMLDivElement>('#timeoutPanel')!
 export const timeoutButton = document.querySelector<HTMLButtonElement>('#timeoutButton')!
-export const audiblePanel = document.querySelector<HTMLDivElement>('#audiblePanel')!
 export const kickMeter = document.querySelector<HTMLDivElement>('#kickMeter')!
 export const kickPrompt = document.querySelector<HTMLElement>('#kickPrompt')!
 export const kickFill = document.querySelector<HTMLDivElement>('#kickFill')!
