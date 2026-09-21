@@ -699,6 +699,35 @@ app.innerHTML = `
           <button id="patGo" type="button"><strong>Go for Two</strong><span>One shot from the 2 — about 50/50, worth 2</span></button>
         </div>
       </div>
+      <div id="coinTossPicker" class="play-call is-hidden" role="dialog" aria-label="Call the coin toss">
+        <span class="play-call-kicker">Coin Toss</span>
+        <h2>Call it in the air</h2>
+        <div class="play-options">
+          <button id="coinCallHeads" type="button"><strong>Heads</strong><span>Win the toss if it lands heads</span></button>
+          <button id="coinCallTails" type="button"><strong>Tails</strong><span>Win the toss if it lands tails</span></button>
+        </div>
+      </div>
+      <div id="coinTossFlip" class="play-call coin-flip-scene is-hidden" role="dialog" aria-label="Coin toss in progress" aria-live="polite">
+        <span class="play-call-kicker">Coin Toss</span>
+        <h2 id="coinFlipStatus">Here we go…</h2>
+        <div class="coin-flip-stage">
+          <div id="referee" class="referee">
+            <div class="referee-arm referee-arm-toss"></div>
+            <div class="referee-arm referee-arm-still"></div>
+            <div class="referee-cap"></div>
+            <div class="referee-head"></div>
+            <div class="referee-body"></div>
+            <div class="referee-legs"></div>
+          </div>
+          <div class="coin-wrap">
+            <div id="coin" class="coin">
+              <div class="coin-face coin-heads">H</div>
+              <div class="coin-face coin-tails">T</div>
+            </div>
+            <div class="coin-shadow"></div>
+          </div>
+        </div>
+      </div>
       <div id="coinTossCall" class="play-call is-hidden" role="dialog" aria-label="Coin toss decision">
         <span class="play-call-kicker">Coin Toss</span>
         <h2>You won the toss — receive or kick?</h2>
@@ -807,6 +836,15 @@ export const newGameButton = document.querySelector<HTMLButtonElement>('#newGame
 export const patCall = document.querySelector<HTMLDivElement>('#patCall')!
 export const patKickButton = document.querySelector<HTMLButtonElement>('#patKick')!
 export const patGoButton = document.querySelector<HTMLButtonElement>('#patGo')!
+export const coinTossPicker = document.querySelector<HTMLDivElement>('#coinTossPicker')!
+export const coinCallHeadsButton = document.querySelector<HTMLButtonElement>('#coinCallHeads')!
+export const coinCallTailsButton = document.querySelector<HTMLButtonElement>('#coinCallTails')!
+export const coinTossFlip = document.querySelector<HTMLDivElement>('#coinTossFlip')!
+export const coinFlipStatus = document.querySelector<HTMLElement>('#coinFlipStatus')!
+export const refereeEl = document.querySelector<HTMLDivElement>('#referee')!
+export const refereeTossArm = document.querySelector<HTMLDivElement>('.referee-arm-toss')!
+export const coinEl = document.querySelector<HTMLDivElement>('#coin')!
+export const coinShadowEl = document.querySelector<HTMLDivElement>('.coin-shadow')!
 export const coinTossCall = document.querySelector<HTMLDivElement>('#coinTossCall')!
 export const coinTossReceiveButton = document.querySelector<HTMLButtonElement>('#coinTossReceive')!
 export const coinTossKickButton = document.querySelector<HTMLButtonElement>('#coinTossKick')!

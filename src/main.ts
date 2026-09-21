@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import './style.css'
 import {
   canvas,
+  coinCallHeadsButton,
+  coinCallTailsButton,
   coinTossKickButton,
   coinTossReceiveButton,
   keys,
@@ -40,6 +42,7 @@ import {
 import { createPlayerView, updateKickBlockers } from './entities.ts'
 import {
   callTimeout,
+  chooseCoinCall,
   chooseCoinToss,
   chooseKickoff,
   goForTwo,
@@ -198,6 +201,8 @@ patGoButton.addEventListener('click', () => {
   if (state.gameOver) return
   goForTwo()
 })
+coinCallHeadsButton.addEventListener('click', () => chooseCoinCall('heads'))
+coinCallTailsButton.addEventListener('click', () => chooseCoinCall('tails'))
 coinTossReceiveButton.addEventListener('click', () => chooseCoinToss(true))
 coinTossKickButton.addEventListener('click', () => chooseCoinToss(false))
 kickoffNormalButton.addEventListener('click', () => {

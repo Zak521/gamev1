@@ -16,7 +16,11 @@ import {
   USER_TWENTY_Z,
   ballOnFromZ,
   clockEl,
+  coinEl,
+  coinFlipStatus,
   coinTossCall,
+  coinTossFlip,
+  coinTossPicker,
   conferenceOptions,
   conferenceSelect,
   defenseCall,
@@ -59,6 +63,8 @@ import {
   quarterEl,
   randomBetween,
   receivers,
+  coinShadowEl,
+  refereeTossArm,
   saveSeason,
   scoreEl,
   seasonRecordEl,
@@ -475,6 +481,8 @@ function endGame() {
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
   kickoffCall.classList.add('is-hidden')
+  coinTossPicker.classList.add('is-hidden')
+  coinTossFlip.classList.add('is-hidden')
   coinTossCall.classList.add('is-hidden')
   const won = state.score > state.opponentScore
   const tied = state.score === state.opponentScore
@@ -553,24 +561,70 @@ export function startGame() {
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
   kickoffCall.classList.add('is-hidden')
+  coinTossPicker.classList.add('is-hidden')
+  coinTossFlip.classList.add('is-hidden')
   coinTossCall.classList.add('is-hidden')
   timeoutPanel.classList.add('is-hidden')
   conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
-  if (Math.random() < 0.5) {
-    statusText.textContent = 'You won the toss…'
-    updateHud()
-    coinTossCall.classList.remove('is-hidden')
-    return
-  }
-  // Opponent won the toss — an automatic decision, same coin-flip odds a real
-  // team's choice comes down to between deferring and receiving.
-  state.firstPossession = Math.random() < 0.5 ? 'offense' : 'defense'
-  statusText.textContent = state.firstPossession === 'offense'
-    ? 'Opponent won the toss and elected to kick — you will receive.'
-    : 'Opponent won the toss and will receive.'
-  schedule(() => kickoff(state.firstPossession), 900)
+  coinEl.classList.remove('is-flipping', 'show-heads', 'show-tails')
+  coinShadowEl.classList.remove('is-flipping')
+  refereeTossArm.classList.remove('is-tossing')
+  statusText.textContent = 'The ref is heading out for the coin toss…'
+  updateHud()
+  coinTossPicker.classList.remove('is-hidden')
+}
+
+let pendingCoinCall: 'heads' | 'tails' | undefined
+
+// The player calls it in the air before the ref flips. A correct call wins
+// the toss (see chooseCoinToss()); a wrong call hands the same automatic
+// kick-or-receive odds a real opponent's choice would carry.
+export function chooseCoinCall(call: 'heads' | 'tails') {
+  pendingCoinCall = call
+  coinTossPicker.classList.add('is-hidden')
+  coinTossFlip.classList.add('is-hidden')
+  // Force a reflow so re-adding the animation classes restarts them cleanly
+  // even if a previous toss (e.g. a quick New Game) never finished.
+  void coinEl.offsetWidth
+  coinTossFlip.classList.remove('is-hidden')
+  coinFlipStatus.textContent = `You call ${call === 'heads' ? 'Heads' : 'Tails'}…`
+  coinEl.classList.remove('show-heads', 'show-tails')
+  refereeTossArm.classList.remove('is-tossing')
+  coinShadowEl.classList.remove('is-flipping')
+  requestAnimationFrame(() => {
+    coinEl.classList.add('is-flipping')
+    coinShadowEl.classList.add('is-flipping')
+    refereeTossArm.classList.add('is-tossing')
+  })
+  schedule(() => resolveCoinToss(), 1650)
+}
+
+function resolveCoinToss() {
+  const call = pendingCoinCall ?? 'heads'
+  const result: 'heads' | 'tails' = Math.random() < 0.5 ? 'heads' : 'tails'
+  coinEl.classList.remove('is-flipping')
+  coinShadowEl.classList.remove('is-flipping')
+  coinEl.classList.add(result === 'heads' ? 'show-heads' : 'show-tails')
+  const won = result === call
+  coinFlipStatus.textContent = `${result === 'heads' ? 'Heads' : 'Tails'}! ${won ? 'You win the toss.' : 'The opponent wins the toss.'}`
+  schedule(() => {
+    coinTossFlip.classList.add('is-hidden')
+    if (won) {
+      statusText.textContent = 'You won the toss…'
+      updateHud()
+      coinTossCall.classList.remove('is-hidden')
+      return
+    }
+    // Opponent won the toss — an automatic decision, same coin-flip odds a real
+    // team's choice comes down to between deferring and receiving.
+    state.firstPossession = Math.random() < 0.5 ? 'offense' : 'defense'
+    statusText.textContent = state.firstPossession === 'offense'
+      ? 'Opponent won the toss and elected to kick — you will receive.'
+      : 'Opponent won the toss and will receive.'
+    schedule(() => kickoff(state.firstPossession), 900)
+  }, 1300)
 }
 
 // The player's choice from the coin-toss dialog after winning the flip:
@@ -601,6 +655,8 @@ export function openTeamSelect() {
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
   kickoffCall.classList.add('is-hidden')
+  coinTossPicker.classList.add('is-hidden')
+  coinTossFlip.classList.add('is-hidden')
   coinTossCall.classList.add('is-hidden')
   timeoutPanel.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
