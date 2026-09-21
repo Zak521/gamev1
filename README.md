@@ -1,11 +1,11 @@
 # Touchdown Rush
 
 A first-person 3D football game that runs in the browser. You play as the
-Minnesota Vikings in a fully modelled stadium, picking one of their NFC North
-rivals — the Detroit Lions, Green Bay Packers, or Chicago Bears, each in
-their own colors — to face at the start of every game. Call plays, take the
-snap, and either sling it downfield or tuck it and run through the defense
-yourself.
+Minnesota Vikings in a fully modelled stadium, picking any of the other 31
+NFL teams — grouped into their real conferences and divisions, each in their
+own colors and kit — to face at the start of every game. Call plays, take
+the snap, and either sling it downfield or tuck it and run through the
+defense yourself.
 
 Built with [Three.js](https://threejs.org/), TypeScript, and [Vite](https://vitejs.dev/).
 
@@ -76,24 +76,36 @@ person.
 | Look around | Move the mouse after clicking the field |
 | Throw to a receiver | `1` / `2` / `3`, or click the receiver on screen |
 | Throw the ball away (once the play is live) | `Q` |
+| Switch controlled defender (on defense) | `Q` |
 | Time a kick | `Space` when the kick meter is up — stop it in the gold zone |
 
 On-screen **Left / Right / Sprint** buttons are provided for touch devices.
 
 ### Rules and game structure
 
-- Every new game opens with a team-select dialog — pick the Lions, Packers,
-  or Bears, and their jerseys, helmet marks, end zone, sideline, and
-  scoreboard all switch to match.
-- Four 2-minute quarters (a 3-minute overtime period if tied), with a running
-  game clock and a 40-second play clock.
+- Every new game opens with a conference-first team-select dialog — pick a
+  conference, then a division, then any of the 31 non-Vikings teams; their
+  jerseys, helmet kit, end zone, sideline, and scoreboard all switch to
+  match, each with its own uniform styling in `src/kits.ts`.
+- You call the opening coin toss (heads/tails, with an animated referee
+  flip) and choose to receive or kick.
+- Four 5-minute quarters (a 3-minute sudden-death overtime period if tied),
+  with a running game clock, a 40-second play clock, and a two-minute
+  warning each half.
+- Three timeouts per team per half (two apiece in overtime).
 - Standard downs: four downs to gain 10 yards for a fresh set. Turnover on
   downs, interceptions, and fumbles all hand the ball to the opponent.
 - Scoring: touchdowns (6) with a choice of extra-point kick (1) or a two-point
   try from the 2, field goals (3), and safeties (2).
-- Special teams: field goal, punt, and a victory kneel to burn clock.
-- Defensive play calls — Base 4-3, Blitz, Cover 2, Goal Line, and QB Spy —
-  change how the AI pursues you.
+- Special teams: playable kickoffs (normal or onside when trailing late,
+  with real return chances), punts, field goals, and a victory kneel to burn
+  clock.
+- Offensive plays are grouped into Pass, Run, and Special Teams tabs in the
+  play-call panel.
+- Defensive play calls — Base 4-3, Blitz, Cover 2, Goal Line, QB Spy,
+  Nickel, Zone Blitz, and Prevent — change how the AI pursues you.
+- A small officiating crew (line judge, head linesman, and a referee behind
+  the play) tracks every snap and signals first downs and touchdowns.
 - Sprinting drains a stamina meter; run it empty and you're locked out of
   sprint until it recovers.
 
@@ -105,17 +117,18 @@ Your win/loss/tie record carries between games and is stored in the browser's
 ```
 index.html         Entry point, mounts the game into #app
 src/main.ts         Composition root: wires the modules, input listeners, frame loop
-src/core.ts         Types, playbooks, rule constants, math helpers, DOM refs, shared state
+src/core.ts         Types, teams/divisions, playbooks, rule constants, DOM refs, shared state
+src/kits.ts         Per-team uniform kits (helmet, pants, stripes) for all 32 teams
 src/world.ts        Renderer/scene/camera, audio, and every 3D builder (field, stadium, crowd, sky)
-src/entities.ts     Player, defender, receiver, and lineman models
-src/rules.ts        The rules engine: drives, downs, scoring, kicks, clock, play menus, HUD
+src/entities.ts     Player, defender, receiver, lineman, and referee models
+src/rules.ts        The rules engine: drives, downs, scoring, kicks, clock, coin toss, play menus, HUD
 src/simulation.ts   Per-frame simulation: passing, pursuit AI, tackling
 src/style.css       HUD and layout styling
 public/             Static assets (favicon, icons)
 ```
 
 The modules form a one-directional dependency chain —
-`core → world → entities → rules → simulation → main` — so each layer only
-knows about the ones beneath it. Shared mutable game state lives in a single
-`state` object in `core.ts`; the crowd uses instanced meshes so several
-thousand fans stay cheap to render.
+`gameMath/gameRules → core → world → entities → rules → simulation → main` —
+so each layer only knows about the ones beneath it. Shared mutable game
+state lives in a single `state` object in `core.ts`; the crowd uses
+instanced meshes so several thousand fans stay cheap to render.
