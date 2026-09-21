@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import {
   END_ZONE_DEPTH,
   EYE_HEIGHT,
@@ -93,34 +94,62 @@ export function releaseMouse() {
 // ---------------------------------------------------------------------------
 
 let audioContext: AudioContext | null = null
-let musicStep = 0
+let crowdRumbleGain: GainNode | null = null
+let crowdRumbleTarget = 0
 
+// No music: just a stadium-crowd ambience, louder and more frequent while the
+// user is on defense (the home crowd getting loud to rattle the opposing
+// offense) and quieter/rarer on offense.
 export function startAudio() {
   if (!audioContext) {
     audioContext = new AudioContext()
+
+    // A continuous, looped murmur (filtered noise) sitting under the periodic
+    // cheer bursts below. Its gain is the thing updateCrowdAudio() swells up
+    // when the user flips to defense, so "loud on defense" reads as a
+    // sustained roar rather than just more frequent one-shot cheers.
+    const loopDur = 2
+    const rumbleBuffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * loopDur), audioContext.sampleRate)
+    const rumbleData = rumbleBuffer.getChannelData(0)
+    for (let i = 0; i < rumbleData.length; i += 1) rumbleData[i] = Math.random() * 2 - 1
+    const rumbleSource = audioContext.createBufferSource()
+    rumbleSource.buffer = rumbleBuffer
+    rumbleSource.loop = true
+    const rumbleFilter = audioContext.createBiquadFilter()
+    rumbleFilter.type = 'bandpass'
+    rumbleFilter.frequency.value = 320
+    rumbleFilter.Q.value = 0.6
+    crowdRumbleGain = audioContext.createGain()
+    crowdRumbleGain.gain.value = 0
+    rumbleSource.connect(rumbleFilter).connect(crowdRumbleGain).connect(audioContext.destination)
+    rumbleSource.start()
+
+    // Runs at the faster (defense) cadence always; the offense case just
+    // rolls its lower chance more often, which reads as "occasional bursts."
     window.setInterval(() => {
       if (!audioContext || !state.running) return
-      const now = audioContext.currentTime
-      const notes = [110, 110, 147, 165, 110, 110, 196, 165]
-      const oscillator = audioContext.createOscillator()
-      const noteGain = audioContext.createGain()
-      oscillator.type = 'sawtooth'
-      oscillator.frequency.value = notes[musicStep % notes.length]
-      noteGain.gain.setValueAtTime(0.0001, now)
-      noteGain.gain.exponentialRampToValueAtTime(0.045, now + 0.015)
-      noteGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24)
-      oscillator.connect(noteGain).connect(audioContext.destination)
-      oscillator.start(now)
-      oscillator.stop(now + 0.25)
-      musicStep += 1
-    }, 250)
-    window.setInterval(() => {
-      if (audioContext && state.running && Math.random() > 0.35) playCrowdCheer()
-    }, 2400)
+      const onDefense = state.possession === 'defense'
+      const chance = onDefense ? 0.65 : 0.2
+      if (Math.random() < chance) playCrowdCheer(onDefense)
+    }, 1400)
   }
   if (audioContext.state === 'suspended') void audioContext.resume()
 }
 
+// Called every render frame (see main.ts) to smoothly swell the continuous
+// crowd rumble in when the user is on defense and let it fall back on
+// offense, rather than snapping the volume and clicking.
+export function updateCrowdAudio() {
+  if (!audioContext || !crowdRumbleGain) return
+  const target = state.running ? (state.possession === 'defense' ? 0.05 : 0.012) : 0
+  if (target === crowdRumbleTarget) return
+  crowdRumbleTarget = target
+  crowdRumbleGain.gain.setTargetAtTime(target, audioContext.currentTime, 0.8)
+}
+
+// A footstep on turf: only ever called while the player is actually moving
+// (see the footstepTimer callers in simulation.ts/rules.ts), so silence
+// otherwise falls out naturally rather than needing a guard here.
 export function playFootstep() {
   if (!audioContext || audioContext.state !== 'running') return
   const now = audioContext.currentTime
@@ -135,6 +164,25 @@ export function playFootstep() {
   oscillator.connect(stepGain).connect(audioContext.destination)
   oscillator.start(now)
   oscillator.stop(now + 0.14)
+
+  // A brief burst of filtered noise layered under the tone for a grittier,
+  // more turf-like scuff instead of a pure synth blip.
+  const scuffDur = 0.09
+  const scuff = audioContext.createBufferSource()
+  const scuffBuffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * scuffDur), audioContext.sampleRate)
+  const scuffData = scuffBuffer.getChannelData(0)
+  for (let i = 0; i < scuffData.length; i += 1) scuffData[i] = (Math.random() * 2 - 1) * (1 - i / scuffData.length)
+  scuff.buffer = scuffBuffer
+  const scuffFilter = audioContext.createBiquadFilter()
+  scuffFilter.type = 'bandpass'
+  scuffFilter.frequency.value = 1400
+  scuffFilter.Q.value = 0.7
+  const scuffGain = audioContext.createGain()
+  scuffGain.gain.setValueAtTime(keys.sprint ? 0.05 : 0.035, now)
+  scuffGain.gain.exponentialRampToValueAtTime(0.0001, now + scuffDur)
+  scuff.connect(scuffFilter).connect(scuffGain).connect(audioContext.destination)
+  scuff.start(now)
+  scuff.stop(now + scuffDur)
 }
 
 // A short airy whoosh as the ball leaves your hand — filtered noise sweeping
@@ -196,20 +244,32 @@ export function playCatch() {
   slap.stop(now + slapDur)
 }
 
-function playCrowdCheer() {
+// `loud` is passed true while the user is on defense — the home crowd leaning
+// on the opposing offense — for a bigger, longer-held swell.
+function playCrowdCheer(loud = false) {
   if (!audioContext || audioContext.state !== 'running') return
   const now = audioContext.currentTime
+  const dur = loud ? 0.85 : 0.55
+  const peak = loud ? 0.034 : 0.018
   const oscillator = audioContext.createOscillator()
   const cheerGain = audioContext.createGain()
   oscillator.type = 'triangle'
   oscillator.frequency.setValueAtTime(randomBetween(180, 280), now)
-  oscillator.frequency.linearRampToValueAtTime(randomBetween(260, 390), now + 0.32)
+  oscillator.frequency.linearRampToValueAtTime(randomBetween(260, 390), now + (loud ? 0.45 : 0.32))
   cheerGain.gain.setValueAtTime(0.0001, now)
-  cheerGain.gain.exponentialRampToValueAtTime(0.018, now + 0.06)
-  cheerGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55)
+  cheerGain.gain.exponentialRampToValueAtTime(peak, now + 0.06)
+  cheerGain.gain.exponentialRampToValueAtTime(0.0001, now + dur)
   oscillator.connect(cheerGain).connect(audioContext.destination)
   oscillator.start(now)
-  oscillator.stop(now + 0.56)
+  oscillator.stop(now + dur + 0.01)
+}
+
+// A box with softened edges instead of the sharp-cornered default — used for
+// torsos, belts and shoes so player bodies read as padded gear rather than
+// stacked crates. `segments` stays low (these appear a few dozen times a
+// frame, never in the instanced crowd) so the rounding is cheap.
+export function roundedBox(width: number, height: number, depth: number, radius: number, segments = 2) {
+  return new RoundedBoxGeometry(width, height, depth, segments, radius)
 }
 
 // ---------------------------------------------------------------------------
@@ -2074,19 +2134,19 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     ? new THREE.MeshStandardMaterial({ color: kit.helmet, roughness: 0.35, metalness: kit.helmetMetal })
     : trimMat
   const facemaskMat = kit ? new THREE.MeshStandardMaterial({ color: kit.facemask, roughness: 0.6 }) : shoeMat
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.82, isCoach ? 1.15 : 1.45, 0.5), jerseyMat)
+  const torso = new THREE.Mesh(roundedBox(0.82, isCoach ? 1.15 : 1.45, 0.5, isCoach ? 0.13 : 0.15), jerseyMat)
   torso.position.y = isCoach ? 1.12 : 1.22
   group.add(torso)
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.2, 8), skinMat)
   neck.position.y = isCoach ? 1.74 : 1.98
   group.add(neck)
   if (!isCoach) {
-    const pads = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 8), trimMat)
+    const pads = new THREE.Mesh(new THREE.SphereGeometry(0.6, 14, 10), trimMat)
     pads.scale.set(1, 0.34, 0.6)
     pads.position.y = 1.95
     group.add(pads)
     if (kit) addKitYoke(group, kit, { width: 0.86, depth: 0.52, bandY: 1.96, lineY: 1.88, collarR: 0.16, collarY: 1.99 })
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), helmetMat)
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 12), helmetMat)
     helmet.scale.set(1.04, 0.92, 1.04)
     helmet.position.y = 2.4
     group.add(helmet)
@@ -2123,18 +2183,18 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
   const shoulderY = isCoach ? 1.55 : 1.72
   for (const armSide of [-1, 1]) {
     const raised = isCoach && armSide === 1
-    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.1, 0.62, 8), jerseyMat)
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.1, 0.62, 10), jerseyMat)
     upper.position.set(armSide * 0.55, shoulderY - 0.3, raised ? 0.12 : 0)
     upper.rotation.z = -armSide * 0.2
     if (raised) upper.rotation.x = -0.5
     group.add(upper)
     if (kit) addKitSleeveHoops(upper, kit, -0.2, 0.115)
-    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.085, 0.58, 8), skinMat)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.085, 0.58, 10), skinMat)
     forearm.position.set(armSide * 0.66, shoulderY - 0.82, raised ? 0.5 : 0.04)
     forearm.rotation.z = -armSide * 0.12
     if (raised) forearm.rotation.x = -1.1
     group.add(forearm)
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), skinMat)
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), skinMat)
     hand.position.set(armSide * 0.7, raised ? shoulderY - 0.5 : shoulderY - 1.12, raised ? 0.66 : 0.06)
     group.add(hand)
   }
@@ -2145,14 +2205,14 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     group.add(sheet)
   }
   for (const legX of [-0.22, 0.22]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, isCoach ? 1.15 : 0.95, 7), pantsMat)
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, isCoach ? 1.15 : 0.95, 10), pantsMat)
     leg.position.set(legX, isCoach ? 0.58 : 0.42, 0)
     group.add(leg)
     if (kit) {
       addKitLegStripe(group, kit, legX + (legX < 0 ? -0.12 : 0.12), 0.46, 0.8)
       addKitSock(group, kit, legX, 0.15)
     }
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.42), shoeMat)
+    const shoe = new THREE.Mesh(roundedBox(0.22, 0.12, 0.42, 0.04, 1), shoeMat)
     shoe.position.set(legX, 0.06, 0.12)
     group.add(shoe)
   }

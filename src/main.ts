@@ -35,6 +35,7 @@ import {
   scene,
   startAudio,
   updateCrowd,
+  updateCrowdAudio,
   updateFireworks,
   updateJumbotronTicker,
   view,
@@ -88,6 +89,7 @@ function frame(time: number) {
     if (cloud.position.x > 300) cloud.position.x -= 600
   }
   updateCrowd(time)
+  updateCrowdAudio()
   updateJumbotronTicker(delta)
   updateFireworks(delta)
   const showStamina = state.running && !state.gameOver && !state.throwing && !state.kickType
