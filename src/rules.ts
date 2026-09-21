@@ -91,9 +91,12 @@ import {
   buildReceivers,
   clearKickBlockers,
   clearPlayers,
+  clearReferees,
   createDefender,
   createLineman,
+  signalReferees,
   spawnKickBlockers,
+  spawnReferees,
 } from './entities.ts'
 import {
   addPoints,
@@ -212,6 +215,7 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
   resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
+  spawnReferees(spotZ)
   playCall.classList.add('is-hidden')
   const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
   const returnLabel = returnKind === 'kickoff' ? 'Kickoff return' : returnKind === 'punt' ? 'Punt return' : null
@@ -400,6 +404,7 @@ function startUserReturn(spotZ: number) {
   resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
+  spawnReferees(spotZ)
   balls.player.visible = true
   balls.thrown.visible = false
   // The kicking team's coverage: spread downfield of the catch, closing fast.
@@ -552,6 +557,7 @@ export function startGame() {
   state.twoMinuteWarningGiven = false
   state.clockStopChecked = false
   clearKickBlockers()
+  clearReferees()
   state.stamina = 1
   state.gassed = false
   kickMeter.classList.add('is-hidden')
@@ -766,6 +772,7 @@ export function gainTo(newBallOn: number, lead = '', clockStops = false) {
   if (state.ballOn >= state.firstDownTarget) {
     state.down = 1
     state.firstDownTarget = Math.min(state.ballOn + 10, 100)
+    signalReferees('firstDown')
     offensiveMenu(lead || 'First down!')
     return
   }
@@ -874,6 +881,7 @@ export function startKick(type: KickType, distance: number) {
     // The opponent's block unit lines up across the ball and rushes the kick.
     spawnKickBlockers(state.cameraZ)
   }
+  spawnReferees(state.cameraZ)
   balls.player.visible = true
   balls.thrown.visible = false
   const label = type === 'extraPoint' ? 'Extra point'
@@ -1096,6 +1104,7 @@ export function turnOverOnDowns() {
 function scoreTouchdown() {
   state.running = false
   state.score = addPoints(state.score, 6)
+  signalReferees('touchdown')
   celebrateTouchdown()
   updateHud()
   // Overtime is sudden death — reaching the end zone ends it on the spot.
@@ -1203,6 +1212,7 @@ export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; l
       state.lastPlayStoppedClock = stopClock
       state.defenseDown = 1
       state.defenseFirstDownZ = spotZ
+      signalReferees('firstDown')
       statusText.textContent = `${label} Opponent moved the chains — 1st & 10 on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
       schedule(() => startDefensiveSeries(spotZ, null, false), 1200)
@@ -1223,6 +1233,7 @@ export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; l
     return
   }
   state.opponentScore = addPoints(state.opponentScore, 6)
+  signalReferees('touchdown')
   const patGood = Math.random() < 0.94
   if (patGood) state.opponentScore = addPoints(state.opponentScore, 1)
   statusText.textContent = `OPPONENT TOUCHDOWN — extra point ${patGood ? 'good' : 'no good'}. They lead ${state.opponentScore}-${state.score}.`
@@ -1304,6 +1315,7 @@ function lineUpForSnap() {
   playerView.rotation.z = 0
   buildDefense()
   buildOffensiveLine()
+  spawnReferees(state.cameraZ)
 }
 
 export function renderPlayOptions() {

@@ -22,7 +22,7 @@ import {
 } from './core.ts'
 import type { Defender, Receiver } from './core.ts'
 import { aimCamera, camera, playCatch, playFootstep, playThrow, playerView, world } from './world.ts'
-import { balls } from './entities.ts'
+import { balls, signalReferees } from './entities.ts'
 import {
   defensiveSafety,
   finishDefensivePlay,
@@ -116,6 +116,7 @@ function updatePass(delta: number) {
   }
   if (!state.passComplete) {
     state.lastPlayStoppedClock = true
+    signalReferees('incomplete')
     state.down += 1
     if (state.down > 4) {
       turnOverOnDowns()
