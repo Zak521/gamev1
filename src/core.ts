@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import {
   OPPONENT_END_ZONE_BACK_Z,
   OPPONENT_GOAL_LINE_Z,
+  OUT_OF_BOUNDS_X,
+  SIDELINE_X,
   USER_END_ZONE_BACK_Z,
   USER_GOAL_LINE_Z,
   ballOnFromZ,
@@ -18,6 +20,8 @@ import { downAndDistanceText } from './gameRules.ts'
 export {
   OPPONENT_END_ZONE_BACK_Z,
   OPPONENT_GOAL_LINE_Z,
+  OUT_OF_BOUNDS_X,
+  SIDELINE_X,
   USER_END_ZONE_BACK_Z,
   USER_GOAL_LINE_Z,
   ballOnFromZ,
@@ -96,7 +100,7 @@ export type SpecialPlayId = 'fieldGoal' | 'punt' | 'kneel'
 export type PlayId = PassPlayId | RunPlayId | SpecialPlayId
 export type PlayTab = 'pass' | 'run' | 'special'
 export type DefenseCall = 'base' | 'blitz' | 'cover2' | 'goalline' | 'spy' | 'nickel' | 'zoneBlitz' | 'prevent'
-export type KickType = 'fieldGoal' | 'extraPoint' | 'punt'
+export type KickType = 'fieldGoal' | 'extraPoint' | 'punt' | 'kickoff'
 
 export type OffensivePlay = { id: PlayId; name: string; blurb: string; tab: PlayTab }
 
@@ -141,9 +145,8 @@ export const isRunId = (id: PlayId | null): id is RunPlayId => !!id && (RUN_IDS 
 export { END_ZONE_DEPTH, USER_TWENTY_Z } from './gameMath.ts'
 
 // Game-structure tunables (see plan: Rules & game structure).
-export const QUARTER_SECONDS = 120
+export const QUARTER_SECONDS = 300
 export const OT_SECONDS = 180
-export const INTER_PLAY_RUNOFF = 25
 export const PLAY_CLOCK_SECONDS = 40
 
 // Movement feel tunables: a global speed trim on every player, and the
@@ -166,7 +169,39 @@ export const pickSkinTone = () => SKIN_TONES[Math.floor(Math.random() * SKIN_TON
 // player picks from the team-select dialog at the start of a game.
 export const VIKINGS_PURPLE = 0x8b5cf6
 
-export type TeamId = 'vikings' | 'lions' | 'packers' | 'bears' | 'falcons' | 'panthers' | 'saints' | 'buccaneers'
+export type TeamId =
+  | 'vikings'
+  | 'lions'
+  | 'packers'
+  | 'bears'
+  | 'falcons'
+  | 'panthers'
+  | 'saints'
+  | 'buccaneers'
+  | 'cowboys'
+  | 'eagles'
+  | 'giants'
+  | 'commanders'
+  | 'ravens'
+  | 'bengals'
+  | 'browns'
+  | 'steelers'
+  | 'texans'
+  | 'colts'
+  | 'jaguars'
+  | 'titans'
+  | 'bills'
+  | 'dolphins'
+  | 'patriots'
+  | 'jets'
+  | 'cardinals'
+  | 'rams'
+  | '49ers'
+  | 'seahawks'
+  | 'broncos'
+  | 'chiefs'
+  | 'raiders'
+  | 'chargers'
 
 export type TeamInfo = {
   id: TeamId
@@ -251,25 +286,313 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
     accent: 0x34302b,
     nameplateText: '#ffd9a8',
   },
+  cowboys: {
+    id: 'cowboys',
+    name: 'COWBOYS',
+    abbr: 'DAL',
+    fullName: 'Dallas Cowboys',
+    primary: 0x041e42,
+    accent: 0x869397,
+    nameplateText: '#e3e9eb',
+  },
+  eagles: {
+    id: 'eagles',
+    name: 'EAGLES',
+    abbr: 'PHI',
+    fullName: 'Philadelphia Eagles',
+    primary: 0x004c54,
+    accent: 0xa5acaf,
+    nameplateText: '#d7f0ee',
+  },
+  giants: {
+    id: 'giants',
+    name: 'GIANTS',
+    abbr: 'NYG',
+    fullName: 'New York Giants',
+    primary: 0x0b2265,
+    accent: 0xa71930,
+    nameplateText: '#dbe4f7',
+  },
+  commanders: {
+    id: 'commanders',
+    name: 'COMMANDERS',
+    abbr: 'WAS',
+    fullName: 'Washington Commanders',
+    primary: 0x5a1414,
+    accent: 0xffb612,
+    nameplateText: '#ffe9a8',
+  },
+  ravens: {
+    id: 'ravens',
+    name: 'RAVENS',
+    abbr: 'BAL',
+    fullName: 'Baltimore Ravens',
+    primary: 0x241773,
+    accent: 0x9e7c0c,
+    nameplateText: '#f5dfa0',
+  },
+  bengals: {
+    id: 'bengals',
+    name: 'BENGALS',
+    abbr: 'CIN',
+    fullName: 'Cincinnati Bengals',
+    primary: 0xfb4f14,
+    accent: 0x000000,
+    nameplateText: '#ffd9c2',
+  },
+  browns: {
+    id: 'browns',
+    name: 'BROWNS',
+    abbr: 'CLE',
+    fullName: 'Cleveland Browns',
+    primary: 0x311d00,
+    accent: 0xff3c00,
+    nameplateText: '#ffcda6',
+  },
+  steelers: {
+    id: 'steelers',
+    name: 'STEELERS',
+    abbr: 'PIT',
+    fullName: 'Pittsburgh Steelers',
+    primary: 0x101820,
+    accent: 0xffb612,
+    nameplateText: '#fff2c2',
+  },
+  texans: {
+    id: 'texans',
+    name: 'TEXANS',
+    abbr: 'HOU',
+    fullName: 'Houston Texans',
+    primary: 0x03202f,
+    accent: 0xa71930,
+    nameplateText: '#eaf1f5',
+  },
+  colts: {
+    id: 'colts',
+    name: 'COLTS',
+    abbr: 'IND',
+    fullName: 'Indianapolis Colts',
+    primary: 0x002c5f,
+    accent: 0xa2aaad,
+    nameplateText: '#dbe8f5',
+  },
+  jaguars: {
+    id: 'jaguars',
+    name: 'JAGUARS',
+    abbr: 'JAX',
+    fullName: 'Jacksonville Jaguars',
+    primary: 0x006778,
+    accent: 0xd7a22a,
+    nameplateText: '#fff4d6',
+  },
+  titans: {
+    id: 'titans',
+    name: 'TITANS',
+    abbr: 'TEN',
+    fullName: 'Tennessee Titans',
+    primary: 0x0c2340,
+    accent: 0x4b92db,
+    nameplateText: '#cfe3fb',
+  },
+  bills: {
+    id: 'bills',
+    name: 'BILLS',
+    abbr: 'BUF',
+    fullName: 'Buffalo Bills',
+    primary: 0x00338d,
+    accent: 0xc60c30,
+    nameplateText: '#dbe9ff',
+  },
+  dolphins: {
+    id: 'dolphins',
+    name: 'DOLPHINS',
+    abbr: 'MIA',
+    fullName: 'Miami Dolphins',
+    primary: 0x008e97,
+    accent: 0xf58220,
+    nameplateText: '#eafcfb',
+  },
+  patriots: {
+    id: 'patriots',
+    name: 'PATRIOTS',
+    abbr: 'NE',
+    fullName: 'New England Patriots',
+    primary: 0x002244,
+    accent: 0xc60c30,
+    nameplateText: '#dbe6f5',
+  },
+  jets: {
+    id: 'jets',
+    name: 'JETS',
+    abbr: 'NYJ',
+    fullName: 'New York Jets',
+    primary: 0x125740,
+    accent: 0x000000,
+    nameplateText: '#d7f2df',
+  },
+  cardinals: {
+    id: 'cardinals',
+    name: 'CARDINALS',
+    abbr: 'ARI',
+    fullName: 'Arizona Cardinals',
+    primary: 0x97233f,
+    accent: 0x000000,
+    nameplateText: '#f8fafc',
+  },
+  rams: {
+    id: 'rams',
+    name: 'RAMS',
+    abbr: 'LA',
+    fullName: 'Los Angeles Rams',
+    primary: 0x003594,
+    accent: 0xffa300,
+    nameplateText: '#ffe6b8',
+  },
+  '49ers': {
+    id: '49ers',
+    name: '49ERS',
+    abbr: 'SF',
+    fullName: 'San Francisco 49ers',
+    primary: 0xaa0000,
+    accent: 0xb3995d,
+    nameplateText: '#f5e6c8',
+  },
+  seahawks: {
+    id: 'seahawks',
+    name: 'SEAHAWKS',
+    abbr: 'SEA',
+    fullName: 'Seattle Seahawks',
+    primary: 0x002244,
+    accent: 0x69be28,
+    nameplateText: '#dff5cb',
+  },
+  broncos: {
+    id: 'broncos',
+    name: 'BRONCOS',
+    abbr: 'DEN',
+    fullName: 'Denver Broncos',
+    primary: 0x002244,
+    accent: 0xfb4f14,
+    nameplateText: '#ffd2b8',
+  },
+  chiefs: {
+    id: 'chiefs',
+    name: 'CHIEFS',
+    abbr: 'KC',
+    fullName: 'Kansas City Chiefs',
+    primary: 0xe31837,
+    accent: 0xffb81c,
+    nameplateText: '#ffe6a8',
+  },
+  raiders: {
+    id: 'raiders',
+    name: 'RAIDERS',
+    abbr: 'LV',
+    fullName: 'Las Vegas Raiders',
+    primary: 0x000000,
+    accent: 0xa5acaf,
+    nameplateText: '#e8eaec',
+  },
+  chargers: {
+    id: 'chargers',
+    name: 'CHARGERS',
+    abbr: 'LAC',
+    fullName: 'Los Angeles Chargers',
+    primary: 0x0080c6,
+    accent: 0xffc20e,
+    nameplateText: '#fff3c2',
+  },
 }
 
-export type DivisionId = 'nfcNorth' | 'nfcSouth'
+export type ConferenceId = 'NFC' | 'AFC'
+
+export type ConferenceInfo = {
+  id: ConferenceId
+  name: string
+  fullName: string
+}
+
+// The two conferences the player picks between before narrowing to a
+// division. Add a division below and tag it with one of these ids.
+export const CONFERENCES: Record<ConferenceId, ConferenceInfo> = {
+  NFC: { id: 'NFC', name: 'NFC', fullName: 'National Football Conference' },
+  AFC: { id: 'AFC', name: 'AFC', fullName: 'American Football Conference' },
+}
+
+export const CONFERENCE_IDS: ConferenceId[] = ['NFC', 'AFC']
+
+export type DivisionId =
+  | 'nfcNorth'
+  | 'nfcSouth'
+  | 'nfcEast'
+  | 'nfcWest'
+  | 'afcNorth'
+  | 'afcSouth'
+  | 'afcEast'
+  | 'afcWest'
 
 export type DivisionInfo = {
   id: DivisionId
   name: string
+  conference: ConferenceId
   teamIds: TeamId[]
 }
 
-// Rival teams grouped by division. The team-select flow picks a division
-// first, then a team from within it — add a new division here (and its
-// teams to TEAMS above) to offer more opponents.
+// Rival teams grouped by division. The new-game flow picks a conference
+// first, then a division inside it, then a team from within that division —
+// add a new division here (and its teams to TEAMS above) to offer more
+// opponents.
 export const DIVISIONS: Record<DivisionId, DivisionInfo> = {
-  nfcNorth: { id: 'nfcNorth', name: 'NFC North', teamIds: ['lions', 'packers', 'bears'] },
-  nfcSouth: { id: 'nfcSouth', name: 'NFC South', teamIds: ['falcons', 'panthers', 'saints', 'buccaneers'] },
+  nfcNorth: { id: 'nfcNorth', name: 'NFC North', conference: 'NFC', teamIds: ['lions', 'packers', 'bears'] },
+  nfcSouth: {
+    id: 'nfcSouth',
+    name: 'NFC South',
+    conference: 'NFC',
+    teamIds: ['falcons', 'panthers', 'saints', 'buccaneers'],
+  },
+  nfcEast: {
+    id: 'nfcEast',
+    name: 'NFC East',
+    conference: 'NFC',
+    teamIds: ['cowboys', 'eagles', 'giants', 'commanders'],
+  },
+  nfcWest: {
+    id: 'nfcWest',
+    name: 'NFC West',
+    conference: 'NFC',
+    teamIds: ['cardinals', 'rams', '49ers', 'seahawks'],
+  },
+  afcNorth: {
+    id: 'afcNorth',
+    name: 'AFC North',
+    conference: 'AFC',
+    teamIds: ['ravens', 'bengals', 'browns', 'steelers'],
+  },
+  afcSouth: {
+    id: 'afcSouth',
+    name: 'AFC South',
+    conference: 'AFC',
+    teamIds: ['texans', 'colts', 'jaguars', 'titans'],
+  },
+  afcEast: {
+    id: 'afcEast',
+    name: 'AFC East',
+    conference: 'AFC',
+    teamIds: ['bills', 'dolphins', 'patriots', 'jets'],
+  },
+  afcWest: {
+    id: 'afcWest',
+    name: 'AFC West',
+    conference: 'AFC',
+    teamIds: ['broncos', 'chiefs', 'raiders', 'chargers'],
+  },
 }
 
 export const DIVISION_IDS: DivisionId[] = Object.keys(DIVISIONS) as DivisionId[]
+
+export function divisionsInConference(conference: ConferenceId): DivisionInfo[] {
+  return DIVISION_IDS.map((id) => DIVISIONS[id]).filter((division) => division.conference === conference)
+}
 
 // Every team the player can pick as an opponent, across all divisions.
 export const OPPONENT_TEAM_IDS: TeamId[] = DIVISION_IDS.flatMap((id) => DIVISIONS[id].teamIds)
@@ -345,9 +668,13 @@ app.innerHTML = `
         <div class="score-bug-info">
           <span class="score-bug-clock"><span id="quarter">1st</span> &middot; <span id="clock">5:00</span></span>
           <span class="score-bug-dd"><span id="down">1st &amp; 10</span> &middot; <span id="yardsLabel">Ball on</span> <span id="yards">OWN 20</span></span>
+          <span class="score-bug-dd">TO <span id="timeoutsUser">3</span>-<span id="timeoutsOpponent">3</span></span>
         </div>
       </div>
       <div class="status-panel"><span id="statusText">Break through the defense!</span></div>
+      <div id="timeoutPanel" class="timeout-panel is-hidden">
+        <button id="timeoutButton" type="button">Call Timeout</button>
+      </div>
       <div id="kickMeter" class="kick-meter is-hidden" aria-live="polite">
         <span id="kickPrompt">Press Space to kick</span>
         <div class="kick-track"><div id="kickFill" class="kick-fill"></div><i class="kick-sweet-spot"></i></div>
@@ -372,6 +699,51 @@ app.innerHTML = `
           <button id="patGo" type="button"><strong>Go for Two</strong><span>One shot from the 2 — about 50/50, worth 2</span></button>
         </div>
       </div>
+      <div id="coinTossPicker" class="play-call is-hidden" role="dialog" aria-label="Call the coin toss">
+        <span class="play-call-kicker">Coin Toss</span>
+        <h2>Call it in the air</h2>
+        <div class="play-options">
+          <button id="coinCallHeads" type="button"><strong>Heads</strong><span>Win the toss if it lands heads</span></button>
+          <button id="coinCallTails" type="button"><strong>Tails</strong><span>Win the toss if it lands tails</span></button>
+        </div>
+      </div>
+      <div id="coinTossFlip" class="play-call coin-flip-scene is-hidden" role="dialog" aria-label="Coin toss in progress" aria-live="polite">
+        <span class="play-call-kicker">Coin Toss</span>
+        <h2 id="coinFlipStatus">Here we go…</h2>
+        <div class="coin-flip-stage">
+          <div id="referee" class="referee">
+            <div class="referee-arm referee-arm-toss"></div>
+            <div class="referee-arm referee-arm-still"></div>
+            <div class="referee-cap"></div>
+            <div class="referee-head"></div>
+            <div class="referee-body"></div>
+            <div class="referee-legs"></div>
+          </div>
+          <div class="coin-wrap">
+            <div id="coin" class="coin">
+              <div class="coin-face coin-heads">H</div>
+              <div class="coin-face coin-tails">T</div>
+            </div>
+            <div class="coin-shadow"></div>
+          </div>
+        </div>
+      </div>
+      <div id="coinTossCall" class="play-call is-hidden" role="dialog" aria-label="Coin toss decision">
+        <span class="play-call-kicker">Coin Toss</span>
+        <h2>You won the toss — receive or kick?</h2>
+        <div class="play-options">
+          <button id="coinTossReceive" type="button"><strong>Receive</strong><span>Take the ball first — opponent gets it to start the 2nd half</span></button>
+          <button id="coinTossKick" type="button"><strong>Kick</strong><span>Kick it away — you'll receive to start the 2nd half</span></button>
+        </div>
+      </div>
+      <div id="kickoffCall" class="play-call is-hidden" role="dialog" aria-label="Kickoff decision">
+        <span class="play-call-kicker">Kickoff</span>
+        <h2>You trail late — how do you want to kick it off?</h2>
+        <div class="play-options">
+          <button id="kickoffNormal" type="button"><strong>Normal Kickoff</strong><span>Kick it deep and trust your defense</span></button>
+          <button id="kickoffOnside" type="button"><strong>Onside Kick</strong><span>Short kick, 10 yards — try to steal it back</span></button>
+        </div>
+      </div>
       <div id="playCall" class="play-call" role="dialog" aria-label="Choose an offensive play">
         <span id="playCallKicker" class="play-call-kicker">Offense · 1st &amp; 10 · Play clock 40</span>
         <h2>Pick a play</h2>
@@ -387,10 +759,16 @@ app.innerHTML = `
         <h2>Call your defense</h2>
         <div id="defenseOptions" class="play-options"></div>
       </div>
-      <div id="divisionSelect" class="play-call is-hidden" role="dialog" aria-label="Choose a division">
+      <div id="conferenceSelect" class="play-call is-hidden" role="dialog" aria-label="Choose a conference">
         <span class="play-call-kicker">New Game</span>
+        <h2>Pick a conference</h2>
+        <div id="conferenceOptions" class="play-options team-options"></div>
+      </div>
+      <div id="divisionSelect" class="play-call is-hidden" role="dialog" aria-label="Choose a division">
+        <span id="divisionSelectKicker" class="play-call-kicker">New Game</span>
         <h2>Pick a division</h2>
         <div id="divisionOptions" class="play-options team-options"></div>
+        <button id="divisionSelectBack" class="back-link" type="button">&larr; Back to conferences</button>
       </div>
       <div id="teamSelect" class="play-call is-hidden" role="dialog" aria-label="Choose your opponent">
         <span id="teamSelectKicker" class="play-call-kicker">New Game</span>
@@ -423,6 +801,10 @@ export const downEl = document.querySelector<HTMLElement>('#down')!
 export const quarterEl = document.querySelector<HTMLElement>('#quarter')!
 export const clockEl = document.querySelector<HTMLElement>('#clock')!
 export const statusText = document.querySelector<HTMLElement>('#statusText')!
+export const timeoutsUserEl = document.querySelector<HTMLElement>('#timeoutsUser')!
+export const timeoutsOpponentEl = document.querySelector<HTMLElement>('#timeoutsOpponent')!
+export const timeoutPanel = document.querySelector<HTMLDivElement>('#timeoutPanel')!
+export const timeoutButton = document.querySelector<HTMLButtonElement>('#timeoutButton')!
 export const kickMeter = document.querySelector<HTMLDivElement>('#kickMeter')!
 export const kickPrompt = document.querySelector<HTMLElement>('#kickPrompt')!
 export const kickFill = document.querySelector<HTMLDivElement>('#kickFill')!
@@ -436,8 +818,12 @@ export const playOptions = document.querySelector<HTMLDivElement>('#playOptions'
 export const defenseCall = document.querySelector<HTMLDivElement>('#defenseCall')!
 export const defenseKicker = document.querySelector<HTMLElement>('#defenseKicker')!
 export const defenseOptions = document.querySelector<HTMLDivElement>('#defenseOptions')!
+export const conferenceSelect = document.querySelector<HTMLDivElement>('#conferenceSelect')!
+export const conferenceOptions = document.querySelector<HTMLDivElement>('#conferenceOptions')!
 export const divisionSelect = document.querySelector<HTMLDivElement>('#divisionSelect')!
+export const divisionSelectKicker = document.querySelector<HTMLElement>('#divisionSelectKicker')!
 export const divisionOptions = document.querySelector<HTMLDivElement>('#divisionOptions')!
+export const divisionSelectBack = document.querySelector<HTMLButtonElement>('#divisionSelectBack')!
 export const teamSelect = document.querySelector<HTMLDivElement>('#teamSelect')!
 export const teamSelectKicker = document.querySelector<HTMLElement>('#teamSelectKicker')!
 export const teamOptions = document.querySelector<HTMLDivElement>('#teamOptions')!
@@ -450,6 +836,21 @@ export const newGameButton = document.querySelector<HTMLButtonElement>('#newGame
 export const patCall = document.querySelector<HTMLDivElement>('#patCall')!
 export const patKickButton = document.querySelector<HTMLButtonElement>('#patKick')!
 export const patGoButton = document.querySelector<HTMLButtonElement>('#patGo')!
+export const coinTossPicker = document.querySelector<HTMLDivElement>('#coinTossPicker')!
+export const coinCallHeadsButton = document.querySelector<HTMLButtonElement>('#coinCallHeads')!
+export const coinCallTailsButton = document.querySelector<HTMLButtonElement>('#coinCallTails')!
+export const coinTossFlip = document.querySelector<HTMLDivElement>('#coinTossFlip')!
+export const coinFlipStatus = document.querySelector<HTMLElement>('#coinFlipStatus')!
+export const refereeEl = document.querySelector<HTMLDivElement>('#referee')!
+export const refereeTossArm = document.querySelector<HTMLDivElement>('.referee-arm-toss')!
+export const coinEl = document.querySelector<HTMLDivElement>('#coin')!
+export const coinShadowEl = document.querySelector<HTMLDivElement>('.coin-shadow')!
+export const coinTossCall = document.querySelector<HTMLDivElement>('#coinTossCall')!
+export const coinTossReceiveButton = document.querySelector<HTMLButtonElement>('#coinTossReceive')!
+export const coinTossKickButton = document.querySelector<HTMLButtonElement>('#coinTossKick')!
+export const kickoffCall = document.querySelector<HTMLDivElement>('#kickoffCall')!
+export const kickoffNormalButton = document.querySelector<HTMLButtonElement>('#kickoffNormal')!
+export const kickoffOnsideButton = document.querySelector<HTMLButtonElement>('#kickoffOnside')!
 
 // ---------------------------------------------------------------------------
 // Shared mutable game state
@@ -492,6 +893,10 @@ export const state = {
   bigPlayAllowed: true,
   playTab: 'pass' as PlayTab,
   runDelay: 0,
+  // True while you're returning a kickoff or punt: forces run-style forward
+  // movement (like a called run play) with no play menu behind it — see
+  // startUserReturn / finishRunPlay.
+  returning: false,
   defenseCall: 'base' as DefenseCall,
   defTackleRadius: 1.7,
   defCarrierSpeedMul: 1,
@@ -501,6 +906,11 @@ export const state = {
   defenseSnapZ: 0,
   defenseFirstDownZ: 0,
   defenseDown: 1,
+  // True for the opponent's very first "down" after receiving a kickoff or
+  // punt: it's a return, not a called play, so the down it ends on always
+  // becomes a fresh 1st & 10 rather than advancing a series (see
+  // finishDefensivePlay).
+  isReturnPlay: false,
   ballCarrier: null as Defender | null,
   // Opponent pass plays: a QB who holds for a read, then throws to a receiver.
   oppQB: null as Defender | null,
@@ -516,6 +926,17 @@ export const state = {
   clockRunning: false,
   clockEventHandled: false,
   lastPlayStoppedClock: true,
+  // Timeouts left this half (two in overtime) — see callTimeout().
+  timeoutsUser: 3,
+  timeoutsOpponent: 3,
+  // Set the instant the game clock crosses 2:00 in the 2nd/4th quarter (or
+  // overtime) during a live play; taken once that play ends, then latched so
+  // it can't fire twice in the same half. Reset each half in startGame/halftime.
+  twoMinuteWarningPending: false,
+  twoMinuteWarningGiven: false,
+  // Guards the once-per-stoppage two-minute-warning/opponent-timeout check in
+  // tickClocks from re-evaluating every frame you sit on a menu.
+  clockStopChecked: false,
   gameOver: false,
   // Guards the season record from being counted twice on one final whistle.
   recorded: false,
@@ -526,6 +947,13 @@ export const state = {
   kickType: null as KickType | null,
   kickPower: 0,
   kickDistance: 0,
+  // True while the current kickoff is a short onside attempt rather than a
+  // normal deep kick — set by chooseKickoff(), read by resolveKickoff().
+  onsideKick: false,
+  // True while the ball in flight is the opponent's own kickoff to you,
+  // rather than your kickoff to them — read by settleKick() to route a
+  // landed kickoff to the right outcome (see simulateOpponentKickoff).
+  opponentKicking: false,
   // Live kick in flight — toward the uprights for a field goal / extra
   // point, or downfield for a punt.
   kickFlight: null as null | {

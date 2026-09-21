@@ -5,6 +5,9 @@ import {
   downAndDistanceText,
   kickIsGood,
   kickSuccessChance,
+  kickoffNetYards,
+  onsideRecoverChance,
+  opponentKickoffNetYards,
   opponentYardAfterTurnover,
 } from './gameRules.ts'
 
@@ -49,5 +52,27 @@ describe('kick outcome rules', () => {
   it('uses the chance as a strict outcome boundary', () => {
     expect(kickIsGood(0.7, 0.699)).toBe(true)
     expect(kickIsGood(0.7, 0.7)).toBe(false)
+  })
+})
+
+describe('kickoff rules', () => {
+  it('sends a perfectly timed kickoff past the goal line for a touchback, and a mistimed one short of it', () => {
+    // Kicked from the 35: 35 + net must clear 100 for a touchback.
+    expect(35 + kickoffNetYards(54)).toBeGreaterThanOrEqual(100)
+    expect(35 + kickoffNetYards(0)).toBeLessThan(100)
+    expect(35 + kickoffNetYards(100)).toBeLessThan(100)
+  })
+
+  it('gives a well-timed onside attempt a real shot and a mistimed one almost none', () => {
+    expect(onsideRecoverChance(54)).toBeGreaterThan(onsideRecoverChance(0))
+    expect(onsideRecoverChance(0)).toBeGreaterThan(0)
+    expect(onsideRecoverChance(54)).toBeLessThan(1)
+  })
+
+  it('keeps the opponent auto-kickoff consistent with its own touchback flag', () => {
+    for (const roll of [0, 0.5, 1]) {
+      expect(35 + opponentKickoffNetYards(true, roll)).toBeGreaterThanOrEqual(100)
+      expect(35 + opponentKickoffNetYards(false, roll)).toBeLessThan(100)
+    }
   })
 })

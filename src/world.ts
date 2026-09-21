@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import {
   END_ZONE_DEPTH,
   EYE_HEIGHT,
@@ -93,34 +94,62 @@ export function releaseMouse() {
 // ---------------------------------------------------------------------------
 
 let audioContext: AudioContext | null = null
-let musicStep = 0
+let crowdRumbleGain: GainNode | null = null
+let crowdRumbleTarget = 0
 
+// No music: just a stadium-crowd ambience, louder and more frequent while the
+// user is on defense (the home crowd getting loud to rattle the opposing
+// offense) and quieter/rarer on offense.
 export function startAudio() {
   if (!audioContext) {
     audioContext = new AudioContext()
+
+    // A continuous, looped murmur (filtered noise) sitting under the periodic
+    // cheer bursts below. Its gain is the thing updateCrowdAudio() swells up
+    // when the user flips to defense, so "loud on defense" reads as a
+    // sustained roar rather than just more frequent one-shot cheers.
+    const loopDur = 2
+    const rumbleBuffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * loopDur), audioContext.sampleRate)
+    const rumbleData = rumbleBuffer.getChannelData(0)
+    for (let i = 0; i < rumbleData.length; i += 1) rumbleData[i] = Math.random() * 2 - 1
+    const rumbleSource = audioContext.createBufferSource()
+    rumbleSource.buffer = rumbleBuffer
+    rumbleSource.loop = true
+    const rumbleFilter = audioContext.createBiquadFilter()
+    rumbleFilter.type = 'bandpass'
+    rumbleFilter.frequency.value = 320
+    rumbleFilter.Q.value = 0.6
+    crowdRumbleGain = audioContext.createGain()
+    crowdRumbleGain.gain.value = 0
+    rumbleSource.connect(rumbleFilter).connect(crowdRumbleGain).connect(audioContext.destination)
+    rumbleSource.start()
+
+    // Runs at the faster (defense) cadence always; the offense case just
+    // rolls its lower chance more often, which reads as "occasional bursts."
     window.setInterval(() => {
       if (!audioContext || !state.running) return
-      const now = audioContext.currentTime
-      const notes = [110, 110, 147, 165, 110, 110, 196, 165]
-      const oscillator = audioContext.createOscillator()
-      const noteGain = audioContext.createGain()
-      oscillator.type = 'sawtooth'
-      oscillator.frequency.value = notes[musicStep % notes.length]
-      noteGain.gain.setValueAtTime(0.0001, now)
-      noteGain.gain.exponentialRampToValueAtTime(0.045, now + 0.015)
-      noteGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24)
-      oscillator.connect(noteGain).connect(audioContext.destination)
-      oscillator.start(now)
-      oscillator.stop(now + 0.25)
-      musicStep += 1
-    }, 250)
-    window.setInterval(() => {
-      if (audioContext && state.running && Math.random() > 0.35) playCrowdCheer()
-    }, 2400)
+      const onDefense = state.possession === 'defense'
+      const chance = onDefense ? 0.65 : 0.2
+      if (Math.random() < chance) playCrowdCheer(onDefense)
+    }, 1400)
   }
   if (audioContext.state === 'suspended') void audioContext.resume()
 }
 
+// Called every render frame (see main.ts) to smoothly swell the continuous
+// crowd rumble in when the user is on defense and let it fall back on
+// offense, rather than snapping the volume and clicking.
+export function updateCrowdAudio() {
+  if (!audioContext || !crowdRumbleGain) return
+  const target = state.running ? (state.possession === 'defense' ? 0.05 : 0.012) : 0
+  if (target === crowdRumbleTarget) return
+  crowdRumbleTarget = target
+  crowdRumbleGain.gain.setTargetAtTime(target, audioContext.currentTime, 0.8)
+}
+
+// A footstep on turf: only ever called while the player is actually moving
+// (see the footstepTimer callers in simulation.ts/rules.ts), so silence
+// otherwise falls out naturally rather than needing a guard here.
 export function playFootstep() {
   if (!audioContext || audioContext.state !== 'running') return
   const now = audioContext.currentTime
@@ -135,6 +164,25 @@ export function playFootstep() {
   oscillator.connect(stepGain).connect(audioContext.destination)
   oscillator.start(now)
   oscillator.stop(now + 0.14)
+
+  // A brief burst of filtered noise layered under the tone for a grittier,
+  // more turf-like scuff instead of a pure synth blip.
+  const scuffDur = 0.09
+  const scuff = audioContext.createBufferSource()
+  const scuffBuffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * scuffDur), audioContext.sampleRate)
+  const scuffData = scuffBuffer.getChannelData(0)
+  for (let i = 0; i < scuffData.length; i += 1) scuffData[i] = (Math.random() * 2 - 1) * (1 - i / scuffData.length)
+  scuff.buffer = scuffBuffer
+  const scuffFilter = audioContext.createBiquadFilter()
+  scuffFilter.type = 'bandpass'
+  scuffFilter.frequency.value = 1400
+  scuffFilter.Q.value = 0.7
+  const scuffGain = audioContext.createGain()
+  scuffGain.gain.setValueAtTime(keys.sprint ? 0.05 : 0.035, now)
+  scuffGain.gain.exponentialRampToValueAtTime(0.0001, now + scuffDur)
+  scuff.connect(scuffFilter).connect(scuffGain).connect(audioContext.destination)
+  scuff.start(now)
+  scuff.stop(now + scuffDur)
 }
 
 // A short airy whoosh as the ball leaves your hand — filtered noise sweeping
@@ -196,20 +244,32 @@ export function playCatch() {
   slap.stop(now + slapDur)
 }
 
-function playCrowdCheer() {
+// `loud` is passed true while the user is on defense — the home crowd leaning
+// on the opposing offense — for a bigger, longer-held swell.
+function playCrowdCheer(loud = false) {
   if (!audioContext || audioContext.state !== 'running') return
   const now = audioContext.currentTime
+  const dur = loud ? 0.85 : 0.55
+  const peak = loud ? 0.034 : 0.018
   const oscillator = audioContext.createOscillator()
   const cheerGain = audioContext.createGain()
   oscillator.type = 'triangle'
   oscillator.frequency.setValueAtTime(randomBetween(180, 280), now)
-  oscillator.frequency.linearRampToValueAtTime(randomBetween(260, 390), now + 0.32)
+  oscillator.frequency.linearRampToValueAtTime(randomBetween(260, 390), now + (loud ? 0.45 : 0.32))
   cheerGain.gain.setValueAtTime(0.0001, now)
-  cheerGain.gain.exponentialRampToValueAtTime(0.018, now + 0.06)
-  cheerGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55)
+  cheerGain.gain.exponentialRampToValueAtTime(peak, now + 0.06)
+  cheerGain.gain.exponentialRampToValueAtTime(0.0001, now + dur)
   oscillator.connect(cheerGain).connect(audioContext.destination)
   oscillator.start(now)
-  oscillator.stop(now + 0.56)
+  oscillator.stop(now + dur + 0.01)
+}
+
+// A box with softened edges instead of the sharp-cornered default — used for
+// torsos, belts and shoes so player bodies read as padded gear rather than
+// stacked crates. `segments` stays low (these appear a few dozen times a
+// frame, never in the instanced crowd) so the rounding is cheap.
+export function roundedBox(width: number, height: number, depth: number, radius: number, segments = 2) {
+  return new RoundedBoxGeometry(width, height, depth, segments, radius)
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +371,21 @@ function hornPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: numb
   ctx.quadraticCurveTo(len * 0.5, -thick * 0.55, 0, 0)
   ctx.closePath()
   ctx.restore()
+}
+
+// A regular 5-pointed star centred at (cx, cy), alternating between the outer
+// and inner radius — used for the Cowboys' star mark.
+function starPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, outerR: number, innerR: number) {
+  ctx.beginPath()
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? outerR : innerR
+    const angle = (Math.PI / 5) * i - Math.PI / 2
+    const x = cx + r * Math.cos(angle)
+    const y = cy + r * Math.sin(angle)
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.closePath()
 }
 
 function paintHorns(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, pair: boolean, fill: string, stroke: string, lineWidth: number) {
@@ -500,6 +575,618 @@ function buccaneersTBDecalTexture() {
   return buccaneersTBDecalTextureCache
 }
 
+// Baltimore Ravens helmet mark: the wishbone "B" — black, outlined in gold.
+let ravensBDecalTextureCache: THREE.CanvasTexture | null = null
+function ravensBDecalTexture() {
+  if (ravensBDecalTextureCache) return ravensBDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#9e7c0c'
+  ctx.strokeText('B', 128, 146)
+  ctx.fillStyle = '#101820'
+  ctx.fillText('B', 128, 146)
+  ravensBDecalTextureCache = new THREE.CanvasTexture(c)
+  return ravensBDecalTextureCache
+}
+
+// Dallas Cowboys helmet mark: the navy star, outlined in white.
+let cowboysStarDecalTextureCache: THREE.CanvasTexture | null = null
+function cowboysStarDecalTexture() {
+  if (cowboysStarDecalTextureCache) return cowboysStarDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 12
+  ctx.strokeStyle = '#f4f4f0'
+  ctx.fillStyle = '#041e42'
+  starPath(ctx, 128, 128, 104, 40)
+  ctx.fill()
+  ctx.stroke()
+  cowboysStarDecalTextureCache = new THREE.CanvasTexture(c)
+  return cowboysStarDecalTextureCache
+}
+
+// Philadelphia Eagles helmet mark: the wishbone "E" — white, outlined in black.
+let eaglesEDecalTextureCache: THREE.CanvasTexture | null = null
+function eaglesEDecalTexture() {
+  if (eaglesEDecalTextureCache) return eaglesEDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 30
+  ctx.strokeStyle = '#000000'
+  ctx.strokeText('E', 128, 146)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillText('E', 128, 146)
+  eaglesEDecalTextureCache = new THREE.CanvasTexture(c)
+  return eaglesEDecalTextureCache
+}
+
+// New York Giants helmet mark: the interlocking "NY" — red, outlined in white.
+let giantsNYDecalTextureCache: THREE.CanvasTexture | null = null
+function giantsNYDecalTexture() {
+  if (giantsNYDecalTextureCache) return giantsNYDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 150px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 18
+  ctx.strokeStyle = '#f8fafc'
+  ctx.strokeText('NY', 128, 138)
+  ctx.fillStyle = '#a71930'
+  ctx.fillText('NY', 128, 138)
+  giantsNYDecalTextureCache = new THREE.CanvasTexture(c)
+  return giantsNYDecalTextureCache
+}
+
+// Washington Commanders helmet mark: the wishbone "W" — gold, outlined in black.
+let commandersWDecalTextureCache: THREE.CanvasTexture | null = null
+function commandersWDecalTexture() {
+  if (commandersWDecalTextureCache) return commandersWDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#000000'
+  ctx.strokeText('W', 128, 146)
+  ctx.fillStyle = '#ffb612'
+  ctx.fillText('W', 128, 146)
+  commandersWDecalTextureCache = new THREE.CanvasTexture(c)
+  return commandersWDecalTextureCache
+}
+
+// A single hypocycloid "astroid" — the puffy four-pointed shape used three-up
+// in the Steelers' Steelmark badge — filled and outlined at (cx, cy) with
+// radius r.
+function paintAstroid(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: string) {
+  const k = r * 0.42
+  ctx.beginPath()
+  ctx.moveTo(cx, cy - r)
+  ctx.quadraticCurveTo(cx + k, cy - k, cx + r, cy)
+  ctx.quadraticCurveTo(cx + k, cy + k, cx, cy + r)
+  ctx.quadraticCurveTo(cx - k, cy + k, cx - r, cy)
+  ctx.quadraticCurveTo(cx - k, cy - k, cx, cy - r)
+  ctx.closePath()
+  ctx.fillStyle = fill
+  ctx.fill()
+  ctx.lineWidth = 4
+  ctx.strokeStyle = '#101820'
+  ctx.stroke()
+}
+
+// Pittsburgh Steelers helmet mark: the Steelmark — a white badge ringed in
+// black, with the three astroids (yellow for steel, red for toughness, blue
+// for strength) fanned above the wordmark. Applied to one side of the helmet
+// only; see the singleSided flag on helmetDecal below.
+let steelersMarkDecalTextureCache: THREE.CanvasTexture | null = null
+function steelersMarkDecalTexture() {
+  if (steelersMarkDecalTextureCache) return steelersMarkDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.beginPath()
+  ctx.arc(128, 128, 118, 0, Math.PI * 2)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fill()
+  ctx.lineWidth = 8
+  ctx.strokeStyle = '#101820'
+  ctx.stroke()
+  paintAstroid(ctx, 82, 108, 32, '#ffb612')
+  paintAstroid(ctx, 128, 94, 32, '#c60c30')
+  paintAstroid(ctx, 174, 108, 32, '#00539b')
+  ctx.fillStyle = '#101820'
+  ctx.font = 'bold 26px Arial, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('STEELERS', 128, 180)
+  steelersMarkDecalTextureCache = new THREE.CanvasTexture(c)
+  return steelersMarkDecalTextureCache
+}
+
+// Houston Texans helmet mark: paired bull horns curling out from the crown,
+// forming the same "T" silhouette as the real logo — built from the same
+// tapered-crescent horn shape used for the Vikings and Saints marks.
+let texansHornsDecalTextureCache: THREE.CanvasTexture | null = null
+function texansHornsDecalTexture() {
+  if (texansHornsDecalTextureCache) return texansHornsDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  paintHorns(ctx, 128, 176, 1.05, true, '#a71930', '#03202f', 12)
+  texansHornsDecalTextureCache = new THREE.CanvasTexture(c)
+  return texansHornsDecalTextureCache
+}
+
+// Indianapolis Colts helmet mark: the horseshoe, open at the bottom.
+let coltsHorseshoeDecalTextureCache: THREE.CanvasTexture | null = null
+function coltsHorseshoeDecalTexture() {
+  if (coltsHorseshoeDecalTextureCache) return coltsHorseshoeDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  const gap = 0.75
+  ctx.lineCap = 'round'
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 32
+  ctx.beginPath()
+  ctx.arc(128, 132, 78, Math.PI / 2 + gap, Math.PI / 2 - gap + Math.PI * 2)
+  ctx.stroke()
+  coltsHorseshoeDecalTextureCache = new THREE.CanvasTexture(c)
+  return coltsHorseshoeDecalTextureCache
+}
+
+// Jacksonville Jaguars helmet mark: the wishbone "J" — gold, outlined in black.
+let jaguarsJDecalTextureCache: THREE.CanvasTexture | null = null
+function jaguarsJDecalTexture() {
+  if (jaguarsJDecalTextureCache) return jaguarsJDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#000000'
+  ctx.strokeText('J', 128, 146)
+  ctx.fillStyle = '#d7a22a'
+  ctx.fillText('J', 128, 146)
+  jaguarsJDecalTextureCache = new THREE.CanvasTexture(c)
+  return jaguarsJDecalTextureCache
+}
+
+// Tennessee Titans helmet mark: the wishbone "T" — Titans blue, outlined in red.
+let titansTDecalTextureCache: THREE.CanvasTexture | null = null
+function titansTDecalTexture() {
+  if (titansTDecalTextureCache) return titansTDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#c8102e'
+  ctx.strokeText('T', 128, 146)
+  ctx.fillStyle = '#4b92db'
+  ctx.fillText('T', 128, 146)
+  titansTDecalTextureCache = new THREE.CanvasTexture(c)
+  return titansTDecalTextureCache
+}
+
+// Buffalo Bills helmet mark: the wishbone "B" — royal blue, outlined in red.
+let billsBDecalTextureCache: THREE.CanvasTexture | null = null
+function billsBDecalTexture() {
+  if (billsBDecalTextureCache) return billsBDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#c60c30'
+  ctx.strokeText('B', 128, 146)
+  ctx.fillStyle = '#00338d'
+  ctx.fillText('B', 128, 146)
+  billsBDecalTextureCache = new THREE.CanvasTexture(c)
+  return billsBDecalTextureCache
+}
+
+// Miami Dolphins helmet mark: the wishbone "D" — white, outlined in navy.
+let dolphinsDDecalTextureCache: THREE.CanvasTexture | null = null
+function dolphinsDDecalTexture() {
+  if (dolphinsDDecalTextureCache) return dolphinsDDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#005778'
+  ctx.strokeText('D', 128, 146)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillText('D', 128, 146)
+  dolphinsDDecalTextureCache = new THREE.CanvasTexture(c)
+  return dolphinsDDecalTextureCache
+}
+
+// New England Patriots helmet mark: the wishbone "P" — navy, outlined in red.
+let patriotsPDecalTextureCache: THREE.CanvasTexture | null = null
+function patriotsPDecalTexture() {
+  if (patriotsPDecalTextureCache) return patriotsPDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#c60c30'
+  ctx.strokeText('P', 128, 146)
+  ctx.fillStyle = '#002244'
+  ctx.fillText('P', 128, 146)
+  patriotsPDecalTextureCache = new THREE.CanvasTexture(c)
+  return patriotsPDecalTextureCache
+}
+
+// New York Jets helmet mark: the wishbone "J" — white, outlined in black.
+let jetsJDecalTextureCache: THREE.CanvasTexture | null = null
+function jetsJDecalTexture() {
+  if (jetsJDecalTextureCache) return jetsJDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 246px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 26
+  ctx.strokeStyle = '#000000'
+  ctx.strokeText('J', 128, 146)
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillText('J', 128, 146)
+  jetsJDecalTextureCache = new THREE.CanvasTexture(c)
+  return jetsJDecalTextureCache
+}
+
+// Arizona Cardinals helmet mark: a cardinal's head in profile, facing forward
+// — a rounded crimson head with a small crest, a black eye and an orange
+// hooked beak.
+let cardinalsHeadDecalTextureCache: THREE.CanvasTexture | null = null
+function cardinalsHeadDecalTexture() {
+  if (cardinalsHeadDecalTextureCache) return cardinalsHeadDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  // Head + neck.
+  ctx.fillStyle = '#97233f'
+  ctx.strokeStyle = '#000000'
+  ctx.lineWidth = 8
+  ctx.beginPath()
+  ctx.moveTo(70, 190)
+  ctx.quadraticCurveTo(48, 150, 56, 108)
+  ctx.quadraticCurveTo(64, 66, 108, 48)
+  ctx.quadraticCurveTo(146, 34, 168, 62)
+  ctx.quadraticCurveTo(182, 82, 168, 100)
+  ctx.quadraticCurveTo(150, 108, 150, 124)
+  ctx.quadraticCurveTo(150, 148, 128, 168)
+  ctx.quadraticCurveTo(108, 184, 96, 196)
+  ctx.quadraticCurveTo(82, 202, 70, 190)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Crest feather sweeping off the back of the head.
+  ctx.beginPath()
+  ctx.moveTo(112, 50)
+  ctx.quadraticCurveTo(96, 20, 122, 8)
+  ctx.quadraticCurveTo(126, 34, 138, 46)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Beak.
+  ctx.fillStyle = '#f2a03d'
+  ctx.beginPath()
+  ctx.moveTo(168, 66)
+  ctx.quadraticCurveTo(200, 74, 204, 92)
+  ctx.quadraticCurveTo(196, 102, 172, 98)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Eye.
+  ctx.fillStyle = '#000000'
+  ctx.beginPath()
+  ctx.arc(128, 88, 9, 0, Math.PI * 2)
+  ctx.fill()
+  cardinalsHeadDecalTextureCache = new THREE.CanvasTexture(c)
+  return cardinalsHeadDecalTextureCache
+}
+
+// Los Angeles Rams helmet mark: the gold curling ram horn, outlined in blue
+// with three ridge lines tracing the curl — a tapered horn sweeping from the
+// crown down into a tight spiral, matching the real logo's silhouette.
+let ramsHornDecalTextureCache: THREE.CanvasTexture | null = null
+function ramsHornDecalTexture() {
+  if (ramsHornDecalTextureCache) return ramsHornDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#ffa300'
+  ctx.strokeStyle = '#003594'
+  ctx.lineWidth = 10
+  ctx.beginPath()
+  ctx.moveTo(96, 26)
+  ctx.quadraticCurveTo(176, 34, 202, 96)
+  ctx.quadraticCurveTo(222, 148, 186, 190)
+  ctx.quadraticCurveTo(160, 220, 124, 208)
+  ctx.quadraticCurveTo(100, 198, 108, 174)
+  ctx.quadraticCurveTo(118, 154, 142, 160)
+  ctx.quadraticCurveTo(160, 164, 162, 146)
+  ctx.quadraticCurveTo(164, 124, 140, 112)
+  ctx.quadraticCurveTo(128, 106, 128, 92)
+  ctx.quadraticCurveTo(120, 60, 96, 40)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Ridge lines tracing the curl, echoing a real horn's growth rings.
+  ctx.lineWidth = 5
+  ctx.beginPath()
+  ctx.moveTo(112, 46)
+  ctx.quadraticCurveTo(150, 60, 168, 100)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(128, 78)
+  ctx.quadraticCurveTo(168, 96, 182, 138)
+  ctx.stroke()
+  ramsHornDecalTextureCache = new THREE.CanvasTexture(c)
+  return ramsHornDecalTextureCache
+}
+
+// San Francisco 49ers helmet mark: the red-and-white "SF" oval.
+let ninersSFDecalTextureCache: THREE.CanvasTexture | null = null
+function ninersSFDecalTexture() {
+  if (ninersSFDecalTextureCache) return ninersSFDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.beginPath()
+  ctx.ellipse(128, 128, 108, 80, 0, 0, Math.PI * 2)
+  ctx.fillStyle = '#aa0000'
+  ctx.fill()
+  ctx.lineWidth = 10
+  ctx.strokeStyle = '#b3995d'
+  ctx.stroke()
+  ctx.fillStyle = '#f8fafc'
+  ctx.font = 'bold 112px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('SF', 128, 140)
+  ninersSFDecalTextureCache = new THREE.CanvasTexture(c)
+  return ninersSFDecalTextureCache
+}
+
+// Seattle Seahawks helmet mark: a stylised hawk head in profile, facing
+// forward — action-green crown outlined in navy, a white hooked beak (flush
+// against a notch in the crown so it reads as one head, not two shapes), a
+// small crest tuft, and a white-ringed eye.
+// Denver Broncos helmet mark: the bronco head in profile, facing forward —
+// an orange head and neck outlined in navy, with a small navy eye and
+// nostril.
+let broncosHorseDecalTextureCache: THREE.CanvasTexture | null = null
+function broncosHorseDecalTexture() {
+  if (broncosHorseDecalTextureCache) return broncosHorseDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#fb4f14'
+  ctx.strokeStyle = '#002244'
+  ctx.lineWidth = 9
+  ctx.beginPath()
+  ctx.moveTo(58, 208)
+  ctx.quadraticCurveTo(50, 140, 74, 90)
+  ctx.quadraticCurveTo(90, 50, 130, 34)
+  ctx.quadraticCurveTo(150, 30, 160, 44)
+  ctx.quadraticCurveTo(148, 52, 140, 60)
+  ctx.quadraticCurveTo(172, 66, 198, 92)
+  ctx.quadraticCurveTo(222, 118, 216, 142)
+  ctx.quadraticCurveTo(206, 156, 184, 152)
+  ctx.quadraticCurveTo(170, 150, 160, 168)
+  ctx.quadraticCurveTo(140, 190, 108, 196)
+  ctx.quadraticCurveTo(84, 202, 58, 208)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Eye and nostril.
+  ctx.fillStyle = '#002244'
+  ctx.beginPath()
+  ctx.arc(150, 86, 7, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.ellipse(200, 128, 8, 5, -0.3, 0, Math.PI * 2)
+  ctx.fill()
+  broncosHorseDecalTextureCache = new THREE.CanvasTexture(c)
+  return broncosHorseDecalTextureCache
+}
+
+// Kansas City Chiefs helmet mark: the red arrowhead outlined in white, with
+// the white "KC" lettering across the middle.
+let chiefsArrowheadDecalTextureCache: THREE.CanvasTexture | null = null
+function chiefsArrowheadDecalTexture() {
+  if (chiefsArrowheadDecalTextureCache) return chiefsArrowheadDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#e31837'
+  ctx.strokeStyle = '#f8fafc'
+  ctx.lineWidth = 12
+  ctx.beginPath()
+  ctx.moveTo(40, 80)
+  ctx.quadraticCurveTo(90, 50, 150, 60)
+  ctx.quadraticCurveTo(200, 70, 228, 128)
+  ctx.quadraticCurveTo(200, 186, 150, 196)
+  ctx.quadraticCurveTo(90, 206, 40, 176)
+  ctx.quadraticCurveTo(26, 150, 28, 128)
+  ctx.quadraticCurveTo(26, 104, 40, 80)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = '#f8fafc'
+  ctx.font = 'bold 76px Georgia, "Times New Roman", serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('KC', 122, 130)
+  chiefsArrowheadDecalTextureCache = new THREE.CanvasTexture(c)
+  return chiefsArrowheadDecalTextureCache
+}
+
+// Las Vegas Raiders helmet mark: the black shield with crossed silver
+// swords — a simplified take on the Raider shield.
+let raidersShieldDecalTextureCache: THREE.CanvasTexture | null = null
+function raidersShieldDecalTexture() {
+  if (raidersShieldDecalTextureCache) return raidersShieldDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#000000'
+  ctx.strokeStyle = '#a5acaf'
+  ctx.lineWidth = 10
+  ctx.beginPath()
+  ctx.moveTo(128, 30)
+  ctx.quadraticCurveTo(190, 40, 210, 70)
+  ctx.quadraticCurveTo(216, 130, 190, 180)
+  ctx.quadraticCurveTo(160, 216, 128, 232)
+  ctx.quadraticCurveTo(96, 216, 66, 180)
+  ctx.quadraticCurveTo(40, 130, 46, 70)
+  ctx.quadraticCurveTo(66, 40, 128, 30)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  ctx.lineCap = 'round'
+  ctx.lineWidth = 8
+  ctx.beginPath()
+  ctx.moveTo(70, 60)
+  ctx.lineTo(186, 204)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(186, 60)
+  ctx.lineTo(70, 204)
+  ctx.stroke()
+  raidersShieldDecalTextureCache = new THREE.CanvasTexture(c)
+  return raidersShieldDecalTextureCache
+}
+
+// Los Angeles Chargers helmet mark: the gold lightning bolt outlined in
+// navy.
+let chargersBoltDecalTextureCache: THREE.CanvasTexture | null = null
+function chargersBoltDecalTexture() {
+  if (chargersBoltDecalTextureCache) return chargersBoltDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  ctx.fillStyle = '#ffc20e'
+  ctx.strokeStyle = '#002a5e'
+  ctx.lineWidth = 8
+  ctx.beginPath()
+  ctx.moveTo(150, 18)
+  ctx.lineTo(84, 132)
+  ctx.lineTo(128, 132)
+  ctx.lineTo(78, 238)
+  ctx.lineTo(184, 100)
+  ctx.lineTo(138, 100)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  chargersBoltDecalTextureCache = new THREE.CanvasTexture(c)
+  return chargersBoltDecalTextureCache
+}
+
+let seahawksHeadDecalTextureCache: THREE.CanvasTexture | null = null
+function seahawksHeadDecalTexture() {
+  if (seahawksHeadDecalTextureCache) return seahawksHeadDecalTextureCache
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  ctx.lineJoin = 'round'
+  // Crown + throat.
+  ctx.fillStyle = '#69be28'
+  ctx.strokeStyle = '#002244'
+  ctx.lineWidth = 8
+  ctx.beginPath()
+  ctx.moveTo(52, 150)
+  ctx.quadraticCurveTo(34, 96, 78, 60)
+  ctx.quadraticCurveTo(112, 32, 150, 40)
+  ctx.quadraticCurveTo(140, 56, 150, 72)
+  ctx.quadraticCurveTo(168, 78, 176, 96)
+  ctx.quadraticCurveTo(158, 98, 148, 110)
+  ctx.quadraticCurveTo(160, 126, 150, 142)
+  ctx.quadraticCurveTo(128, 168, 96, 182)
+  ctx.quadraticCurveTo(66, 194, 50, 182)
+  ctx.quadraticCurveTo(44, 168, 52, 150)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Crest tuft off the back of the crown.
+  ctx.beginPath()
+  ctx.moveTo(96, 36)
+  ctx.quadraticCurveTo(84, 14, 108, 6)
+  ctx.quadraticCurveTo(116, 26, 128, 34)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Hooked beak, white-on-navy so it reads against a navy helmet shell —
+  // flush against the notch in the crown outline above.
+  ctx.fillStyle = '#f8fafc'
+  ctx.beginPath()
+  ctx.moveTo(148, 110)
+  ctx.quadraticCurveTo(200, 96, 224, 122)
+  ctx.quadraticCurveTo(236, 144, 210, 160)
+  ctx.quadraticCurveTo(188, 170, 176, 150)
+  ctx.quadraticCurveTo(184, 128, 150, 142)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  // Eye, ringed in white for contrast against the green.
+  ctx.fillStyle = '#f8fafc'
+  ctx.beginPath()
+  ctx.arc(126, 84, 12, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#002244'
+  ctx.beginPath()
+  ctx.arc(129, 84, 6, 0, Math.PI * 2)
+  ctx.fill()
+  seahawksHeadDecalTextureCache = new THREE.CanvasTexture(c)
+  return seahawksHeadDecalTextureCache
+}
+
 function decalTextureForTeam(teamId: TeamId) {
   switch (teamId) {
     case 'vikings':
@@ -518,19 +1205,75 @@ function decalTextureForTeam(teamId: TeamId) {
       return saintsFleurDecalTexture()
     case 'buccaneers':
       return buccaneersTBDecalTexture()
+    case 'cowboys':
+      return cowboysStarDecalTexture()
+    case 'eagles':
+      return eaglesEDecalTexture()
+    case 'giants':
+      return giantsNYDecalTexture()
+    case 'commanders':
+      return commandersWDecalTexture()
+    case 'ravens':
+      return ravensBDecalTexture()
+    case 'steelers':
+      return steelersMarkDecalTexture()
+    case 'texans':
+      return texansHornsDecalTexture()
+    case 'colts':
+      return coltsHorseshoeDecalTexture()
+    case 'jaguars':
+      return jaguarsJDecalTexture()
+    case 'titans':
+      return titansTDecalTexture()
+    case 'bills':
+      return billsBDecalTexture()
+    case 'dolphins':
+      return dolphinsDDecalTexture()
+    case 'patriots':
+      return patriotsPDecalTexture()
+    case 'jets':
+      return jetsJDecalTexture()
+    case 'cardinals':
+      return cardinalsHeadDecalTexture()
+    case 'rams':
+      return ramsHornDecalTexture()
+    case '49ers':
+      return ninersSFDecalTexture()
+    case 'seahawks':
+      return seahawksHeadDecalTexture()
+    case 'broncos':
+      return broncosHorseDecalTexture()
+    case 'chiefs':
+      return chiefsArrowheadDecalTexture()
+    case 'raiders':
+      return raidersShieldDecalTexture()
+    case 'chargers':
+      return chargersBoltDecalTexture()
+    case 'bengals':
+    case 'browns':
+      // Real Bengals (the tiger-stripe crown carries the look) and Browns
+      // (logo-less since 1946) helmets carry no side mark.
+      return null
   }
 }
 
+// Teams whose real helmet decal appears on one side only, most famously the
+// Steelers' Steelmark — the NFL's original single-sided decal, kept since 1962.
+const SINGLE_SIDED_DECAL_TEAMS = new Set<TeamId>(['steelers'])
+
 // A helmet decal: a small plane on each side of the helmet, textured with the
 // team's mark. The far side is mirrored so a directional mark (the horn) reads
-// correctly from both profiles.
+// correctly from both profiles; teams with no mark (or a single-sided one)
+// skip a side entirely rather than faking symmetry the real helmet doesn't have.
 export function helmetDecal(teamId: TeamId, radius: number, y: number) {
   const group = new THREE.Group()
-  const isVikings = teamId === 'vikings'
   const texture = decalTextureForTeam(teamId)
+  if (!texture) return group
+  const isVikings = teamId === 'vikings'
   const w = radius * (isVikings ? 1.35 : 1.05)
   const h = radius * (isVikings ? 1.2 : 1.05)
-  for (const side of [-1, 1]) {
+  const sides = SINGLE_SIDED_DECAL_TEAMS.has(teamId) ? [1] : [-1, 1]
+  for (const side of sides) {
     const decal = new THREE.Mesh(
       new THREE.PlaneGeometry(w, h),
       new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }),
@@ -1391,19 +2134,19 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     ? new THREE.MeshStandardMaterial({ color: kit.helmet, roughness: 0.35, metalness: kit.helmetMetal })
     : trimMat
   const facemaskMat = kit ? new THREE.MeshStandardMaterial({ color: kit.facemask, roughness: 0.6 }) : shoeMat
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.82, isCoach ? 1.15 : 1.45, 0.5), jerseyMat)
+  const torso = new THREE.Mesh(roundedBox(0.82, isCoach ? 1.15 : 1.45, 0.5, isCoach ? 0.13 : 0.15), jerseyMat)
   torso.position.y = isCoach ? 1.12 : 1.22
   group.add(torso)
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.2, 8), skinMat)
   neck.position.y = isCoach ? 1.74 : 1.98
   group.add(neck)
   if (!isCoach) {
-    const pads = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 8), trimMat)
+    const pads = new THREE.Mesh(new THREE.SphereGeometry(0.6, 14, 10), trimMat)
     pads.scale.set(1, 0.34, 0.6)
     pads.position.y = 1.95
     group.add(pads)
     if (kit) addKitYoke(group, kit, { width: 0.86, depth: 0.52, bandY: 1.96, lineY: 1.88, collarR: 0.16, collarY: 1.99 })
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), helmetMat)
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 12), helmetMat)
     helmet.scale.set(1.04, 0.92, 1.04)
     helmet.position.y = 2.4
     group.add(helmet)
@@ -1440,18 +2183,18 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
   const shoulderY = isCoach ? 1.55 : 1.72
   for (const armSide of [-1, 1]) {
     const raised = isCoach && armSide === 1
-    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.1, 0.62, 8), jerseyMat)
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.1, 0.62, 10), jerseyMat)
     upper.position.set(armSide * 0.55, shoulderY - 0.3, raised ? 0.12 : 0)
     upper.rotation.z = -armSide * 0.2
     if (raised) upper.rotation.x = -0.5
     group.add(upper)
     if (kit) addKitSleeveHoops(upper, kit, -0.2, 0.115)
-    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.085, 0.58, 8), skinMat)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.085, 0.58, 10), skinMat)
     forearm.position.set(armSide * 0.66, shoulderY - 0.82, raised ? 0.5 : 0.04)
     forearm.rotation.z = -armSide * 0.12
     if (raised) forearm.rotation.x = -1.1
     group.add(forearm)
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), skinMat)
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), skinMat)
     hand.position.set(armSide * 0.7, raised ? shoulderY - 0.5 : shoulderY - 1.12, raised ? 0.66 : 0.06)
     group.add(hand)
   }
@@ -1462,14 +2205,14 @@ function createSidelineFigure(x: number, z: number, jersey: number, trim: number
     group.add(sheet)
   }
   for (const legX of [-0.22, 0.22]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, isCoach ? 1.15 : 0.95, 7), pantsMat)
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, isCoach ? 1.15 : 0.95, 10), pantsMat)
     leg.position.set(legX, isCoach ? 0.58 : 0.42, 0)
     group.add(leg)
     if (kit) {
       addKitLegStripe(group, kit, legX + (legX < 0 ? -0.12 : 0.12), 0.46, 0.8)
       addKitSock(group, kit, legX, 0.15)
     }
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.42), shoeMat)
+    const shoe = new THREE.Mesh(roundedBox(0.22, 0.12, 0.42, 0.04, 1), shoeMat)
     shoe.position.set(legX, 0.06, 0.12)
     group.add(shoe)
   }

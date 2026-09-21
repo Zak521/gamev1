@@ -4,6 +4,8 @@ import {
   MOVE_SCALE,
   OPPONENT_END_ZONE_BACK_Z,
   OPPONENT_GOAL_LINE_Z,
+  OUT_OF_BOUNDS_X,
+  SIDELINE_X,
   USER_END_ZONE_BACK_Z,
   USER_GOAL_LINE_Z,
   ballOnFromZ,
@@ -20,7 +22,7 @@ import {
 } from './core.ts'
 import type { Defender, Receiver } from './core.ts'
 import { aimCamera, camera, playCatch, playFootstep, playThrow, playerView, world } from './world.ts'
-import { balls } from './entities.ts'
+import { balls, signalReferees } from './entities.ts'
 import {
   defensiveSafety,
   finishDefensivePlay,
@@ -114,6 +116,7 @@ function updatePass(delta: number) {
   }
   if (!state.passComplete) {
     state.lastPlayStoppedClock = true
+    signalReferees('incomplete')
     state.down += 1
     if (state.down > 4) {
       turnOverOnDowns()
@@ -171,7 +174,7 @@ function pursueTarget(d: Defender, tx: number, tz: number, tvx: number, tvz: num
   const len = Math.hypot(aimX, aimZ) || 0.0001
   const slowed = d.stumbleUntil > state.playTime ? 0.34 : 1
   const step = d.speed * delta * slowed * MOVE_SCALE
-  d.x = THREE.MathUtils.clamp(d.x + (aimX / len) * step, -25, 25)
+  d.x = THREE.MathUtils.clamp(d.x + (aimX / len) * step, -SIDELINE_X, SIDELINE_X)
   d.z += (aimZ / len) * step
 }
 
@@ -202,16 +205,25 @@ export function updateGame(delta: number) {
     updatePass(delta)
     return
   }
-  const isRunPlay = isRunId(state.selectedPlay)
+  // A kick/punt return moves like a run play — forced forward, no play menu
+  // behind it — even though no play was actually called.
+  const isRunPlay = isRunId(state.selectedPlay) || state.returning
   const runReady = !isRunPlay || state.playTime >= state.runDelay
   const direction = (keys.left ? -1 : 0) + (keys.right ? 1 : 0)
   const depthDirection = isRunPlay ? (runReady ? 1 : 0) : (keys.forward ? 1 : 0) + (keys.backward ? -1 : 0)
   const moving = isRunPlay || direction !== 0 || depthDirection !== 0
   const perSecond = resolveSprint(delta, moving) * MOVE_SCALE
   const speed = perSecond * delta
-  state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * MOVE_SCALE, -22, 22)
+  state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * MOVE_SCALE, -SIDELINE_X, SIDELINE_X)
   state.cameraZ -= depthDirection * speed
   state.ballOn = ballOnFromZ(state.cameraZ)
+  // Stepping on or past the sideline ends the play right there, dead-ball —
+  // same as a real out-of-bounds run, and finishRunPlay reads this same
+  // threshold to stop the clock for it.
+  if (Math.abs(state.playerX) >= OUT_OF_BOUNDS_X) {
+    finishRunPlay()
+    return
+  }
   // Retreating out the back of your own end zone — hitting the bleachers —
   // ends the play as a safety instead of letting you run out of the stadium.
   if (state.cameraZ >= USER_END_ZONE_BACK_Z) {
@@ -426,7 +438,8 @@ function resolveOpponentPass(): boolean {
     return false
   }
   if (roll < interceptChance + breakupChance) {
-    finishDefensivePlay(true, { spotZ: state.defenseSnapZ, label: 'PASS DEFENSED!', allowFumble: false })
+    // An incomplete pass always stops the clock, same as your own.
+    finishDefensivePlay(true, { spotZ: state.defenseSnapZ, label: 'PASS DEFENSED!', allowFumble: false, stopClock: true })
     return false
   }
   receiver.isReceiver = false
@@ -489,7 +502,7 @@ function updateDefense(delta: number) {
   const depthDirection = (keys.forward ? 1 : 0) + (keys.backward ? -1 : 0)
   const blocked = state.playerBlockedUntil > state.playTime
   const perSecond = resolveSprint(delta, direction !== 0 || depthDirection !== 0) * (blocked ? 0.45 : 1) * MOVE_SCALE
-  state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * (blocked ? 0.4 : 1) * MOVE_SCALE, -22, 22)
+  state.playerX = THREE.MathUtils.clamp(state.playerX + direction * delta * 12 * (blocked ? 0.4 : 1) * MOVE_SCALE, -SIDELINE_X, SIDELINE_X)
   // Clamped to the field's own end zones so you can't chase the runner (or
   // just wander) out the back of the stadium into the bleachers.
   state.cameraZ = THREE.MathUtils.clamp(state.cameraZ - depthDirection * perSecond * delta, OPPONENT_END_ZONE_BACK_Z, USER_END_ZONE_BACK_Z)
@@ -554,9 +567,16 @@ function updateDefense(delta: number) {
   const fwd = (nearDist > 6 ? 15.5 : nearDist < 2.6 ? 8.5 : carrier.speed) * state.defCarrierSpeedMul * MOVE_SCALE
   carrier.z += fwd * delta
   const aimX = juking ? carrier.x + state.carrierJukeVX : state.carrierLaneX
-  carrier.x = THREE.MathUtils.clamp(carrier.x + (aimX - carrier.x) * Math.min(1, delta * (juking ? 9 : 2.6)), -23, 23)
+  carrier.x = THREE.MathUtils.clamp(carrier.x + (aimX - carrier.x) * Math.min(1, delta * (juking ? 9 : 2.6)), -SIDELINE_X, SIDELINE_X)
   carrier.mesh.position.set(carrier.x, Math.abs(Math.sin(performance.now() * 0.014 + carrier.runPhase)) * 0.1, carrier.z)
   carrier.mesh.rotation.z = Math.sin(performance.now() * 0.014 + carrier.runPhase) * 0.04
+
+  // Run out of the field of play and the whistle blows dead right there — no
+  // tackle needed, and it stops the clock like any real out-of-bounds play.
+  if (Math.abs(carrier.x) >= OUT_OF_BOUNDS_X) {
+    finishDefensivePlay(true, { spotZ: carrier.z, label: 'Out of bounds!', allowFumble: false, stopClock: true })
+    return
+  }
 
   // --- Blockers wall off whichever pursuer is closest to the carrier.
   for (const blocker of defenders) {

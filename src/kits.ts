@@ -126,6 +126,320 @@ export const UNIFORM_KITS: Partial<Record<TeamId, UniformKit>> = {
     pantStripe: [TEAMS.buccaneers.primary, TEAMS.buccaneers.accent],
     helmetStripe: [0xff7900, TEAMS.buccaneers.accent],
   },
+  // Dallas: metallic-silver helmet with the navy-blue star and a thin
+  // navy-white-navy centre stripe, navy facemask, silver pants with a
+  // navy-white stripe, white numbers, navy-and-white jersey stripes.
+  cowboys: {
+    helmet: 0xc4c9cc,
+    helmetMetal: 0.55,
+    facemask: TEAMS.cowboys.primary,
+    pants: 0xc4c9cc,
+    numberColor: '#ffffff',
+    band: TEAMS.cowboys.primary,
+    line: 0xf4f4f0,
+    pantStripe: [TEAMS.cowboys.primary, 0xf4f4f0],
+    helmetStripe: [TEAMS.cowboys.primary, 0xf4f4f0],
+  },
+  // Philadelphia: midnight-green helmet with the white wings and grey
+  // facemask, black pants with a green-silver stripe, white numbers,
+  // green-and-silver jersey stripes.
+  eagles: {
+    helmet: TEAMS.eagles.primary,
+    helmetMetal: 0.2,
+    facemask: TEAMS.eagles.accent,
+    pants: 0x000000,
+    numberColor: '#ffffff',
+    band: TEAMS.eagles.primary,
+    line: TEAMS.eagles.accent,
+    pantStripe: [TEAMS.eagles.primary, TEAMS.eagles.accent],
+  },
+  // New York: blue helmet with the red-and-white "NY" and a grey facemask,
+  // white pants with a blue-red stripe, white numbers, blue-and-red jersey
+  // stripes.
+  giants: {
+    helmet: TEAMS.giants.primary,
+    helmetMetal: 0.3,
+    facemask: 0x9aa5ab,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.giants.primary,
+    line: TEAMS.giants.accent,
+    pantStripe: [TEAMS.giants.primary, TEAMS.giants.accent],
+  },
+  // Washington: burgundy helmet with the gold "W" and black facemask,
+  // burgundy pants with a gold stripe, gold numbers, burgundy-and-gold
+  // jersey stripes.
+  commanders: {
+    helmet: TEAMS.commanders.primary,
+    helmetMetal: 0.2,
+    facemask: 0x000000,
+    pants: TEAMS.commanders.primary,
+    numberColor: '#ffb612',
+    band: TEAMS.commanders.primary,
+    line: TEAMS.commanders.accent,
+    pantStripe: [TEAMS.commanders.primary, TEAMS.commanders.accent],
+  },
+  // Baltimore: purple helmet with the black facemask and gold "B" (see
+  // ravensBDecalTexture), purple pants with a black-gold stripe, white
+  // numbers, purple-and-black jersey stripes.
+  ravens: {
+    helmet: TEAMS.ravens.primary,
+    helmetMetal: 0.3,
+    facemask: 0x000000,
+    pants: TEAMS.ravens.primary,
+    numberColor: '#ffffff',
+    band: TEAMS.ravens.primary,
+    line: TEAMS.ravens.accent,
+    pantStripe: [0x000000, TEAMS.ravens.accent],
+  },
+  // Cincinnati: orange helmet with the black-orange tiger-stripe crown and
+  // black facemask — no separate side logo, same as the real thing — black
+  // pants, white numbers, black-and-orange jersey stripes.
+  bengals: {
+    helmet: TEAMS.bengals.primary,
+    helmetMetal: 0.15,
+    facemask: 0x000000,
+    pants: 0x000000,
+    numberColor: '#ffffff',
+    band: TEAMS.bengals.primary,
+    line: 0x000000,
+    pantStripe: [TEAMS.bengals.primary, 0x000000],
+    helmetStripe: [0x000000, TEAMS.bengals.primary],
+  },
+  // Cleveland: solid orange helmet with no logo — a Browns tradition since
+  // 1946 — and a brown facemask, white pants with a brown-orange stripe,
+  // white numbers, brown-and-orange jersey stripes.
+  browns: {
+    helmet: TEAMS.browns.accent,
+    helmetMetal: 0.2,
+    facemask: TEAMS.browns.primary,
+    pants: 0xffffff,
+    numberColor: '#ffffff',
+    band: TEAMS.browns.primary,
+    line: TEAMS.browns.accent,
+    pantStripe: [TEAMS.browns.primary, TEAMS.browns.accent],
+  },
+  // Pittsburgh: black helmet with the gold facemask and the Steelmark on one
+  // side only — the NFL's original single-sided decal, unchanged since 1962
+  // (see the singleSided flag on the decal below) — black pants with a gold
+  // stripe, gold numbers, black-and-gold jersey stripes.
+  steelers: {
+    helmet: TEAMS.steelers.primary,
+    helmetMetal: 0.25,
+    facemask: TEAMS.steelers.accent,
+    pants: TEAMS.steelers.primary,
+    numberColor: '#ffb612',
+    band: TEAMS.steelers.primary,
+    line: TEAMS.steelers.accent,
+    pantStripe: [TEAMS.steelers.primary, TEAMS.steelers.accent],
+  },
+  // Houston: deep-steel-blue helmet with the bull-horn mark, battle-red
+  // facemask, white pants with a steel-blue-and-red stripe, white numbers,
+  // steel-blue-and-red jersey stripes.
+  texans: {
+    helmet: TEAMS.texans.primary,
+    helmetMetal: 0.25,
+    facemask: TEAMS.texans.accent,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.texans.primary,
+    line: TEAMS.texans.accent,
+    pantStripe: [TEAMS.texans.primary, TEAMS.texans.accent],
+  },
+  // Indianapolis: blue helmet with the horseshoe mark, grey facemask, white
+  // pants with a blue stripe, white numbers, blue-and-grey jersey stripes —
+  // no black anywhere, same as the real thing.
+  colts: {
+    helmet: TEAMS.colts.primary,
+    helmetMetal: 0.35,
+    facemask: TEAMS.colts.accent,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.colts.primary,
+    line: TEAMS.colts.accent,
+    pantStripe: [TEAMS.colts.primary, TEAMS.colts.primary],
+  },
+  // Jacksonville: teal helmet with the "J" mark, black facemask, black pants,
+  // white numbers, teal-and-gold jersey stripes.
+  jaguars: {
+    helmet: TEAMS.jaguars.primary,
+    helmetMetal: 0.3,
+    facemask: 0x000000,
+    pants: 0x000000,
+    numberColor: '#ffffff',
+    band: TEAMS.jaguars.primary,
+    line: TEAMS.jaguars.accent,
+    pantStripe: [TEAMS.jaguars.primary, TEAMS.jaguars.accent],
+  },
+  // Tennessee: navy helmet with the "T" mark and a Titans-blue-and-red crown
+  // stripe, red facemask, white pants with a navy-and-red stripe, white
+  // numbers, navy-and-Titans-blue jersey stripes.
+  titans: {
+    helmet: TEAMS.titans.primary,
+    helmetMetal: 0.2,
+    facemask: 0xc8102e,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.titans.primary,
+    line: TEAMS.titans.accent,
+    pantStripe: [TEAMS.titans.primary, 0xc8102e],
+    helmetStripe: [TEAMS.titans.accent, 0xc8102e],
+  },
+  // Buffalo: white helmet with the blue-and-red buffalo mark and a grey
+  // facemask, white pants with a blue-red stripe, white numbers,
+  // blue-and-red jersey stripes.
+  bills: {
+    helmet: 0xf4f4f0,
+    helmetMetal: 0.15,
+    facemask: 0x9aa5ab,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.bills.primary,
+    line: TEAMS.bills.accent,
+    pantStripe: [TEAMS.bills.primary, TEAMS.bills.accent],
+  },
+  // Miami: aqua helmet with the white-and-navy dolphin mark and a white
+  // facemask, white pants with an aqua-orange stripe, white numbers,
+  // aqua-and-orange jersey stripes.
+  dolphins: {
+    helmet: TEAMS.dolphins.primary,
+    helmetMetal: 0.25,
+    facemask: 0xf4f4f0,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.dolphins.primary,
+    line: TEAMS.dolphins.accent,
+    pantStripe: [TEAMS.dolphins.primary, TEAMS.dolphins.accent],
+  },
+  // New England: silver helmet with the navy-and-red "P" mark and a navy
+  // facemask, white pants with a navy-red stripe, white numbers,
+  // navy-and-red jersey stripes.
+  patriots: {
+    helmet: 0xb0b7bc,
+    helmetMetal: 0.5,
+    facemask: TEAMS.patriots.primary,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.patriots.primary,
+    line: TEAMS.patriots.accent,
+    pantStripe: [TEAMS.patriots.primary, TEAMS.patriots.accent],
+  },
+  // New York (Jets): Gotham-green helmet with the white "J" mark and a white
+  // facemask, white pants with a green stripe, white numbers, green-and-black
+  // jersey stripes.
+  jets: {
+    helmet: TEAMS.jets.primary,
+    helmetMetal: 0.2,
+    facemask: 0xf4f4f0,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.jets.primary,
+    line: TEAMS.jets.accent,
+    pantStripe: [TEAMS.jets.primary, TEAMS.jets.accent],
+  },
+  // Arizona: white helmet with the cardinal-red bird-head mark and black
+  // facemask, white pants with a red-black stripe, white numbers,
+  // red-and-black jersey stripes.
+  cardinals: {
+    helmet: 0xf4f4f0,
+    helmetMetal: 0.15,
+    facemask: 0x000000,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.cardinals.primary,
+    line: 0x000000,
+    pantStripe: [TEAMS.cardinals.primary, 0x000000],
+  },
+  // Los Angeles: royal-blue helmet with the gold curling ram horn and a
+  // matching blue facemask, white pants with a blue-gold stripe, white
+  // numbers, blue-and-gold jersey stripes.
+  rams: {
+    helmet: TEAMS.rams.primary,
+    helmetMetal: 0.3,
+    facemask: TEAMS.rams.primary,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.rams.primary,
+    line: TEAMS.rams.accent,
+    pantStripe: [TEAMS.rams.primary, TEAMS.rams.accent],
+  },
+  // San Francisco: metallic-gold helmet with the red-and-white "SF" oval and
+  // a grey facemask, gold pants, white numbers, red-and-gold jersey stripes.
+  '49ers': {
+    helmet: TEAMS['49ers'].accent,
+    helmetMetal: 0.45,
+    facemask: 0x9aa5ab,
+    pants: TEAMS['49ers'].accent,
+    numberColor: '#ffffff',
+    band: TEAMS['49ers'].primary,
+    line: TEAMS['49ers'].accent,
+    pantStripe: [TEAMS['49ers'].primary, TEAMS['49ers'].accent],
+  },
+  // Seattle: navy helmet with the action-green hawk-head mark and a lime
+  // facemask, navy pants with a green-grey stripe, white numbers,
+  // navy-and-green jersey stripes.
+  seahawks: {
+    helmet: TEAMS.seahawks.primary,
+    helmetMetal: 0.2,
+    facemask: TEAMS.seahawks.accent,
+    pants: TEAMS.seahawks.primary,
+    numberColor: '#ffffff',
+    band: TEAMS.seahawks.primary,
+    line: TEAMS.seahawks.accent,
+    pantStripe: [TEAMS.seahawks.primary, TEAMS.seahawks.accent],
+  },
+  // Denver: navy helmet with the orange bronco-head mark and a steel-grey
+  // facemask, white pants with a navy-orange stripe, white numbers,
+  // navy-and-orange jersey stripes.
+  broncos: {
+    helmet: TEAMS.broncos.primary,
+    helmetMetal: 0.2,
+    facemask: 0x9aa5ab,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.broncos.primary,
+    line: TEAMS.broncos.accent,
+    pantStripe: [TEAMS.broncos.primary, TEAMS.broncos.accent],
+  },
+  // Kansas City: red helmet with the red-and-white arrowhead mark and a
+  // white facemask, white pants with a red-gold stripe, white numbers,
+  // red-and-gold jersey stripes.
+  chiefs: {
+    helmet: TEAMS.chiefs.primary,
+    helmetMetal: 0.25,
+    facemask: 0xf4f4f0,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.chiefs.primary,
+    line: TEAMS.chiefs.accent,
+    pantStripe: [TEAMS.chiefs.primary, TEAMS.chiefs.accent],
+  },
+  // Las Vegas: black helmet with the silver shield-and-swords mark and a
+  // silver facemask, silver pants year-round — a Raiders signature — white
+  // numbers, black-and-silver jersey stripes.
+  raiders: {
+    helmet: TEAMS.raiders.primary,
+    helmetMetal: 0.35,
+    facemask: TEAMS.raiders.accent,
+    pants: TEAMS.raiders.accent,
+    numberColor: '#ffffff',
+    band: TEAMS.raiders.primary,
+    line: TEAMS.raiders.accent,
+    pantStripe: [TEAMS.raiders.primary, TEAMS.raiders.primary],
+  },
+  // Los Angeles (Chargers): white helmet with the gold-and-navy lightning
+  // bolt mark and a navy facemask, white pants with a navy-powder-blue
+  // stripe, white numbers, powder-blue-and-gold jersey stripes.
+  chargers: {
+    helmet: 0xf4f4f0,
+    helmetMetal: 0.15,
+    facemask: 0x002a5e,
+    pants: 0xf4f4f0,
+    numberColor: '#ffffff',
+    band: TEAMS.chargers.primary,
+    line: TEAMS.chargers.accent,
+    pantStripe: [0x002a5e, TEAMS.chargers.primary],
+  },
 }
 
 export const kitMat = (color: number, roughness = 0.5) => new THREE.MeshStandardMaterial({ color, roughness })

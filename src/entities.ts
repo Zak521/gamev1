@@ -1,7 +1,20 @@
 import * as THREE from 'three'
-import { TEAMS, defenders, kickBlockers, linemen, pickSkinTone, randomBetween, receivers, state, teammates } from './core.ts'
+import {
+  OPPONENT_GOAL_LINE_Z,
+  SIDELINE_X,
+  TEAMS,
+  USER_GOAL_LINE_Z,
+  defenders,
+  kickBlockers,
+  linemen,
+  pickSkinTone,
+  randomBetween,
+  receivers,
+  state,
+  teammates,
+} from './core.ts'
 import type { Defender, PassPlayId, TeamId } from './core.ts'
-import { addFace, camera, groundShadow, helmetDecal, jerseyNameplate, labelSprite, playerView, world } from './world.ts'
+import { addFace, camera, groundShadow, helmetDecal, jerseyNameplate, labelSprite, playerView, roundedBox, world } from './world.ts'
 import { UNIFORM_KITS, addKitLegStripe, addKitSleeveHoops, addKitYoke } from './kits.ts'
 
 // The first-person footballs, created inside createPlayerView(). Declared here so
@@ -30,13 +43,13 @@ function jointedLeg(
   const hipY = centerY + totalLen / 2
   const ankleY = centerY - totalLen / 2
   const kneeY = centerY + totalLen * 0.05
-  const thigh = new THREE.Mesh(new THREE.CylinderGeometry(rTop * 0.9, rTop, hipY - kneeY, 8), pants)
+  const thigh = new THREE.Mesh(new THREE.CylinderGeometry(rTop * 0.9, rTop, hipY - kneeY, 12), pants)
   thigh.position.set(legX, (hipY + kneeY) / 2, -0.03)
   group.add(thigh)
-  const shin = new THREE.Mesh(new THREE.CylinderGeometry(rBot * 1.15, rBot, kneeY - ankleY, 8), pants)
+  const shin = new THREE.Mesh(new THREE.CylinderGeometry(rBot * 1.15, rBot, kneeY - ankleY, 12), pants)
   shin.position.set(legX, (kneeY + ankleY) / 2, 0.05)
   group.add(shin)
-  const knee = new THREE.Mesh(new THREE.SphereGeometry(rTop * 1.04, 10, 8), pad)
+  const knee = new THREE.Mesh(new THREE.SphereGeometry(rTop * 1.04, 12, 10), pad)
   knee.scale.set(1, 0.8, 0.9)
   knee.position.set(legX, kneeY, 0.05)
   group.add(knee)
@@ -45,7 +58,7 @@ function jointedLeg(
 // A small joint sphere where an upper arm meets a forearm, so elbows bend
 // instead of the arm being one snapped stick.
 function elbow(group: THREE.Group, x: number, y: number, z: number, r: number, mat: THREE.Material) {
-  const joint = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), mat)
+  const joint = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), mat)
   joint.position.set(x, y, z)
   group.add(joint)
 }
@@ -63,10 +76,10 @@ export function createDefender(x: number, z: number, color: number, number: numb
   const facemaskMaterial = kit ? new THREE.MeshStandardMaterial({ color: kit.facemask, roughness: 0.6 }) : padMaterial
   const bandMaterial = kit ? new THREE.MeshStandardMaterial({ color: kit.band, roughness: 0.45 }) : null
   const lineMaterial = kit ? new THREE.MeshStandardMaterial({ color: kit.line, roughness: 0.5 }) : null
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.7, 0.75), uniform)
+  const torso = new THREE.Mesh(roundedBox(1.2, 1.7, 0.75, 0.22), uniform)
   torso.position.y = 1.25
   group.add(torso)
-  const shoulderPads = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), padMaterial)
+  const shoulderPads = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), padMaterial)
   shoulderPads.scale.set(0.88, 0.28, 0.5)
   shoulderPads.position.y = 1.95
   group.add(shoulderPads)
@@ -96,7 +109,7 @@ export function createDefender(x: number, z: number, color: number, number: numb
   nameplate.position.set(0, 1.85, 0.4)
   nameplate.scale.set(1.7, 0.42, 1)
   group.add(nameplate)
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 8), helmetMaterial)
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 18, 14), helmetMaterial)
   helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.45
   group.add(helmet)
@@ -144,11 +157,11 @@ export function createDefender(x: number, z: number, color: number, number: numb
         group.add(centreStripe)
       }
     }
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.62), dark)
+    const shoe = new THREE.Mesh(roundedBox(0.32, 0.16, 0.62, 0.055, 1), dark)
     shoe.position.set(legX, 0.06, 0.16)
     group.add(shoe)
     // A low heel wedge so the cleat isn't a plain slab.
-    const heel = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.22), dark)
+    const heel = new THREE.Mesh(roundedBox(0.3, 0.08, 0.22, 0.03, 1), dark)
     heel.position.set(legX, 0.02, 0.02)
     group.add(heel)
     if (kit?.socks) {
@@ -168,13 +181,13 @@ export function createDefender(x: number, z: number, color: number, number: numb
   group.add(neck)
   addFace(group, { skin: skinMaterial, radius: 0.48, y: 2.45 })
   // A belt where the jersey tucks into the pants.
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.16, 0.72), new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.7 }))
+  const belt = new THREE.Mesh(roundedBox(1.16, 0.16, 0.72, 0.05, 1), new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.7 }))
   belt.position.y = 0.5
   group.add(belt)
   // Arms: a short jersey sleeve over a bare forearm, ending in a gloved hand.
   for (const armSide of [-0.72, 0.72]) {
     const inward = armSide < 0 ? -1 : 1
-    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.15, 0.7, 8), uniform)
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.15, 0.7, 10), uniform)
     sleeve.position.set(armSide, 1.55, 0)
     sleeve.rotation.z = -inward * 0.24
     group.add(sleeve)
@@ -192,7 +205,7 @@ export function createDefender(x: number, z: number, color: number, number: numb
       }
     }
     elbow(group, armSide + inward * 0.08, 1.22, 0.03, 0.145, skinMaterial)
-    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.12, 0.68, 8), skinMaterial)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.12, 0.68, 10), skinMaterial)
     forearm.position.set(armSide + inward * 0.14, 0.95, 0.05)
     forearm.rotation.z = -inward * 0.12
     group.add(forearm)
@@ -201,7 +214,7 @@ export function createDefender(x: number, z: number, color: number, number: numb
     wristband.position.set(armSide + inward * 0.19, 0.68, 0.07)
     wristband.rotation.z = -inward * 0.12
     group.add(wristband)
-    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), padMaterial)
+    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 8), padMaterial)
     glove.position.set(armSide + inward * 0.2, 0.6, 0.08)
     group.add(glove)
   }
@@ -257,11 +270,11 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   const helmetMaterial = new THREE.MeshStandardMaterial({ color: kit.helmet, roughness: 0.35, metalness: kit.helmetMetal })
   const facemaskMaterial = new THREE.MeshStandardMaterial({ color: kit.facemask, roughness: 0.6 })
   const pantsMaterial = new THREE.MeshStandardMaterial({ color: kit.pants, roughness: 0.6 })
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.35, 0.58), uniform)
+  const torso = new THREE.Mesh(roundedBox(0.85, 1.35, 0.58, 0.16), uniform)
   torso.position.y = 1.12
   group.add(torso)
   const skin = new THREE.MeshStandardMaterial({ color: pickSkinTone(), roughness: 0.85 })
-  const shoulderPads = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 8), dark)
+  const shoulderPads = new THREE.Mesh(new THREE.SphereGeometry(0.62, 16, 12), dark)
   shoulderPads.scale.set(1, 0.32, 0.6)
   shoulderPads.position.y = 1.72
   group.add(shoulderPads)
@@ -269,7 +282,7 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.22, 8), skin)
   neck.position.y = 1.84
   group.add(neck)
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 8), helmetMaterial)
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 14), helmetMaterial)
   helmet.scale.set(1.02, 0.94, 1.02)
   helmet.position.y = 2.05
   group.add(helmet)
@@ -286,26 +299,26 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   for (const legX of [-0.22, 0.22]) {
     jointedLeg(group, legX, 0.38, 0.9, 0.13, 0.1, pantsMaterial, dark)
     addKitLegStripe(group, kit, legX + (legX < 0 ? -0.11 : 0.11), 0.42, 0.78)
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.13, 0.5), dark)
+    const shoe = new THREE.Mesh(roundedBox(0.25, 0.13, 0.5, 0.045, 1), dark)
     shoe.position.set(legX, 0.05, 0.14)
     group.add(shoe)
-    const heel = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.07, 0.18), dark)
+    const heel = new THREE.Mesh(roundedBox(0.24, 0.07, 0.18, 0.025, 1), dark)
     heel.position.set(legX, 0.02, 0.01)
     group.add(heel)
   }
   for (const armX of [-0.52, 0.52]) {
     const inward = armX < 0 ? -1 : 1
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.5, 7), uniform)
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.5, 10), uniform)
     arm.position.set(armX, 1.5, -0.06)
     arm.rotation.z = -inward * 0.32
     group.add(arm)
     addKitSleeveHoops(arm, kit, -0.15, 0.115)
     elbow(group, armX + inward * 0.07, 1.29, 0, 0.1, skin)
-    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.5, 7), skin)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.5, 10), skin)
     forearm.position.set(armX + inward * 0.14, 1.06, 0)
     forearm.rotation.z = -inward * 0.16
     group.add(forearm)
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), skin)
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), skin)
     hand.position.set(armX + inward * 0.22, 0.82, 0.02)
     group.add(hand)
   }
@@ -343,10 +356,10 @@ export function createLineman(x: number, z: number, number: number) {
   const helmetMaterial = new THREE.MeshStandardMaterial({ color: kit.helmet, roughness: 0.35, metalness: kit.helmetMetal })
   const facemaskMaterial = new THREE.MeshStandardMaterial({ color: kit.facemask, roughness: 0.6 })
   const pantsMaterial = new THREE.MeshStandardMaterial({ color: kit.pants, roughness: 0.6 })
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.65, 0.9), uniform)
+  const torso = new THREE.Mesh(roundedBox(1.35, 1.65, 0.9, 0.24), uniform)
   torso.position.y = 1.22
   group.add(torso)
-  const pads = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 8), uniform)
+  const pads = new THREE.Mesh(new THREE.SphereGeometry(0.9, 18, 14), uniform)
   pads.scale.set(1.05, 0.32, 0.58)
   pads.position.y = 1.92
   group.add(pads)
@@ -355,7 +368,7 @@ export function createLineman(x: number, z: number, number: number) {
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.24, 8), skin)
   neck.position.y = 2.02
   group.add(neck)
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 8), helmetMaterial)
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.48, 18, 14), helmetMaterial)
   helmet.scale.set(1.05, 0.92, 1.05)
   helmet.position.y = 2.4
   group.add(helmet)
@@ -368,32 +381,32 @@ export function createLineman(x: number, z: number, number: number) {
   // Beefy arms braced forward, ending in gloved hands, plus cleats.
   for (const armX of [-0.86, 0.86]) {
     const inward = armX < 0 ? -1 : 1
-    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.66, 8), uniform)
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.66, 10), uniform)
     sleeve.position.set(armX, 1.5, 0.02)
     sleeve.rotation.z = -inward * 0.3
     group.add(sleeve)
     addKitSleeveHoops(sleeve, kit, -0.22, 0.205)
     elbow(group, armX + inward * 0.09, 1.18, 0.08, 0.18, skin)
-    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.15, 0.62, 8), skin)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.15, 0.62, 10), skin)
     forearm.position.set(armX + inward * 0.16, 0.94, 0.16)
     forearm.rotation.z = -inward * 0.18
     forearm.rotation.x = -0.5
     group.add(forearm)
-    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), dark)
+    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), dark)
     glove.position.set(armX + inward * 0.24, 0.64, 0.4)
     group.add(glove)
   }
   // A belt at the waist where the jersey meets the pants.
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.16, 0.86), new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.7 }))
+  const belt = new THREE.Mesh(roundedBox(1.3, 0.16, 0.86, 0.055, 1), new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.7 }))
   belt.position.y = 0.52
   group.add(belt)
   for (const legX of [-0.34, 0.34]) {
     jointedLeg(group, legX, 0.44, 1.05, 0.17, 0.14, pantsMaterial, dark)
     addKitLegStripe(group, kit, legX + (legX < 0 ? -0.16 : 0.16), 0.5, 0.9)
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.56), dark)
+    const shoe = new THREE.Mesh(roundedBox(0.32, 0.16, 0.56, 0.055, 1), dark)
     shoe.position.set(legX, 0.06, 0.16)
     group.add(shoe)
-    const heel = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.2), dark)
+    const heel = new THREE.Mesh(roundedBox(0.3, 0.08, 0.2, 0.03, 1), dark)
     heel.position.set(legX, 0.02, 0.02)
     group.add(heel)
   }
@@ -435,24 +448,24 @@ export function createPlayerView() {
   const cuffGold = new THREE.MeshStandardMaterial({ color: UNIFORM_KITS.vikings!.band, roughness: 0.5 })
   const gloveMaterial = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 })
   for (const side of [-1, 1]) {
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.4, 10), armMaterial)
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.4, 12), armMaterial)
     arm.position.set(side * 0.62, -1.18, -1.75)
     arm.rotation.z = side * 0.35
     arm.rotation.x = side * 0.18
     playerView.add(arm)
-    const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.48), jersey)
+    const sleeve = new THREE.Mesh(roundedBox(0.42, 0.42, 0.48, 0.09), jersey)
     sleeve.position.set(side * 0.7, -0.65, -1.65)
     playerView.add(sleeve)
     // Gold cuff stripe wrapped around the wrist end of the visible sleeve.
-    const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.09, 0.5), cuffGold)
+    const cuff = new THREE.Mesh(roundedBox(0.44, 0.09, 0.5, 0.035, 1), cuffGold)
     cuff.position.set(side * 0.7, -0.8, -1.65)
     playerView.add(cuff)
     // A taped wrist and a gloved hand gripping in toward the ball.
-    const wristTape = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.16, 10), new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.85 }))
+    const wristTape = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.16, 12), new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.85 }))
     wristTape.position.set(side * 0.52, -1.72, -1.78)
     wristTape.rotation.z = side * 0.35
     playerView.add(wristTape)
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), gloveMaterial)
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), gloveMaterial)
     hand.scale.set(1, 0.82, 1.1)
     hand.position.set(side * 0.42, -1.9, -1.78)
     playerView.add(hand)
@@ -517,6 +530,7 @@ export function clearPlayers() {
   while (receivers.length) world.remove(receivers.pop()!.mesh)
   while (teammates.length) world.remove(teammates.pop()!.mesh)
   clearKickBlockers()
+  clearReferees()
 }
 
 // ---------------------------------------------------------------------------
@@ -581,5 +595,197 @@ export function updateKickBlockers(delta: number) {
     const leap = Math.sin(Math.min(1, b.rush * 1.25) * Math.PI) * b.leap
     b.mesh.position.y = leap * 1.15
     b.mesh.rotation.x = -0.12 - leap * 0.5
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Officiating crew
+//
+// A few referees stand off to the side of every live snap, just like the NFL:
+// a Head Linesman and Line Judge on either sideline at the line of scrimmage,
+// plus a deeper Referee watching from behind the play. They turn to track the
+// ball carrier (or the QB before a throw) and throw their arms up for a
+// touchdown, point downfield for a first down, or wave off an incomplete pass.
+// Purely cosmetic — the officiating never affects a play's outcome.
+// ---------------------------------------------------------------------------
+
+type RefereeSignal = 'none' | 'touchdown' | 'firstDown' | 'incomplete'
+
+type RefereeAnim = {
+  mesh: THREE.Group
+  leftArm: THREE.Group
+  rightArm: THREE.Group
+  phase: number
+  signal: RefereeSignal
+  signalStart: number
+  signalDur: number
+}
+
+const refereeAnims: RefereeAnim[] = []
+
+// One arm as a shoulder-pivoted group hanging straight down by default, so a
+// signal just rotates the pivot instead of repositioning limb meshes.
+function buildRefereeArm(skin: THREE.Material): THREE.Group {
+  const pivot = new THREE.Group()
+  const sleeve = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.11, 0.1, 0.42, 10),
+    new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 }),
+  )
+  sleeve.position.set(0, -0.22, 0)
+  pivot.add(sleeve)
+  const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.08, 0.44, 10), skin)
+  forearm.position.set(0, -0.62, 0.02)
+  pivot.add(forearm)
+  const hand = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), skin)
+  hand.position.set(0, -0.86, 0.03)
+  pivot.add(hand)
+  return pivot
+}
+
+export function createReferee(x: number, z: number, tag: string) {
+  const group = new THREE.Group()
+  const black = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 })
+  const white = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.7 })
+  const skin = new THREE.MeshStandardMaterial({ color: pickSkinTone(), roughness: 0.85 })
+  // Vertically striped shirt: alternating black/white slats standing in for
+  // the NFL officiating uniform.
+  const stripeCount = 5
+  const totalWidth = 1.0
+  const stripeWidth = totalWidth / stripeCount
+  for (let i = 0; i < stripeCount; i += 1) {
+    const stripe = new THREE.Mesh(roundedBox(stripeWidth, 1.5, 0.62, 0.05, 1), i % 2 === 0 ? black : white)
+    stripe.position.set(-totalWidth / 2 + stripeWidth * (i + 0.5), 1.2, 0)
+    group.add(stripe)
+  }
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 0.2, 8), skin)
+  neck.position.y = 2.02
+  group.add(neck)
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 12), skin)
+  head.position.y = 2.32
+  group.add(head)
+  addFace(group, { skin, radius: 0.4, y: 2.32 })
+  // A low black cap with a small brim.
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.41, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), black)
+  cap.position.y = 2.34
+  group.add(cap)
+  const brim = new THREE.Mesh(roundedBox(0.5, 0.05, 0.28, 0.02, 1), black)
+  brim.position.set(0, 2.24, 0.32)
+  group.add(brim)
+  // Black slacks.
+  for (const legX of [-0.24, 0.24]) {
+    jointedLeg(group, legX, 0.4, 0.95, 0.14, 0.11, black, black)
+    const shoe = new THREE.Mesh(roundedBox(0.26, 0.14, 0.5, 0.045, 1), black)
+    shoe.position.set(legX, 0.05, 0.14)
+    group.add(shoe)
+  }
+  const belt = new THREE.Mesh(roundedBox(1.02, 0.12, 0.64, 0.04, 1), black)
+  belt.position.y = 0.46
+  group.add(belt)
+  const leftArm = buildRefereeArm(skin)
+  leftArm.position.set(-0.58, 1.72, 0)
+  group.add(leftArm)
+  const rightArm = buildRefereeArm(skin)
+  rightArm.position.set(0.58, 1.72, 0)
+  group.add(rightArm)
+  const label = labelSprite(tag, '#fef08a')
+  label.position.set(0, 2.95, 0)
+  label.scale.set(0.85, 0.4, 1)
+  group.add(label)
+  group.add(groundShadow(0.75))
+  group.position.set(x, 0, z)
+  world.add(group)
+  refereeAnims.push({
+    mesh: group,
+    leftArm,
+    rightArm,
+    phase: randomBetween(0, Math.PI * 2),
+    signal: 'none',
+    signalStart: 0,
+    signalDur: 0,
+  })
+}
+
+export function clearReferees() {
+  while (refereeAnims.length) world.remove(refereeAnims.pop()!.mesh)
+}
+
+// Line the crew up for a fresh snap: two sideline officials right at the line
+// of scrimmage, plus one deeper in the direction the play is headed — behind
+// the offensive backfield on your snaps, downfield of the line on defense.
+export function spawnReferees(losZ: number) {
+  clearReferees()
+  const z = THREE.MathUtils.clamp(losZ, OPPONENT_GOAL_LINE_Z + 6, USER_GOAL_LINE_Z - 6)
+  const driveSign = state.possession === 'defense' ? 1 : -1
+  const backZ = THREE.MathUtils.clamp(z + driveSign * 16, OPPONENT_GOAL_LINE_Z + 6, USER_GOAL_LINE_Z - 6)
+  createReferee(SIDELINE_X - 1.4, z, 'HL')
+  createReferee(-(SIDELINE_X - 1.4), z, 'LJ')
+  createReferee(-(SIDELINE_X - 3.4), backZ, 'REF')
+}
+
+// What the crew is watching this frame: the ball carrier (or the QB, before a
+// throw) on defense, otherwise you.
+function refereeActionPoint(): [number, number] {
+  if (state.possession === 'defense') {
+    const focus = state.ballCarrier ?? state.oppQB
+    if (focus) return [focus.x, focus.z]
+    return [0, state.cameraZ]
+  }
+  return [state.playerX, state.cameraZ]
+}
+
+// Trigger every referee on the field into the matching signal for a moment —
+// arms straight up for a touchdown, an arm swung downfield for a first down,
+// or both arms waved off for an incomplete pass. Purely cosmetic flair; the
+// call is already decided by the time this plays.
+export function signalReferees(kind: Exclude<RefereeSignal, 'none'>) {
+  const dur = kind === 'touchdown' ? 1700 : kind === 'firstDown' ? 1200 : 900
+  const now = performance.now()
+  for (const ref of refereeAnims) {
+    ref.signal = kind
+    ref.signalStart = now
+    ref.signalDur = dur
+  }
+}
+
+const refereeLookTarget = new THREE.Vector3()
+const refereeLookHelper = new THREE.Object3D()
+
+export function updateReferees(delta: number) {
+  if (refereeAnims.length === 0) return
+  const [targetX, targetZ] = refereeActionPoint()
+  const now = performance.now()
+  for (const ref of refereeAnims) {
+    // A light weight-shift bob so the crew doesn't look frozen in place.
+    ref.mesh.position.y = Math.abs(Math.sin(now * 0.004 + ref.phase)) * 0.035
+    refereeLookTarget.set(targetX, ref.mesh.position.y + 1.4, targetZ)
+    refereeLookHelper.position.copy(ref.mesh.position)
+    refereeLookHelper.lookAt(refereeLookTarget)
+    ref.mesh.quaternion.slerp(refereeLookHelper.quaternion, Math.min(1, delta * 4))
+
+    let leftTarget = 0
+    let rightTarget = 0
+    let sway = 0
+    if (ref.signal !== 'none') {
+      const p = (now - ref.signalStart) / ref.signalDur
+      if (p >= 1) {
+        ref.signal = 'none'
+      } else if (ref.signal === 'touchdown') {
+        // Both arms punched straight overhead.
+        leftTarget = rightTarget = Math.sin(Math.min(1, p * 2.4) * Math.PI * 0.5) * Math.PI
+      } else if (ref.signal === 'firstDown') {
+        // One arm swung up and forward, pointing the new line downfield.
+        rightTarget = Math.sin(Math.min(1, p * 2.4) * Math.PI * 0.5) * (Math.PI * 0.52)
+      } else {
+        // Incomplete: both arms raised and waved side to side.
+        const raise = Math.sin(Math.min(1, p * 3) * Math.PI * 0.5) * Math.PI * 0.8
+        leftTarget = rightTarget = raise
+        sway = Math.sin(now * 0.02) * 0.35
+      }
+    }
+    const armLerp = Math.min(1, delta * 8)
+    ref.leftArm.rotation.x = THREE.MathUtils.lerp(ref.leftArm.rotation.x, leftTarget, armLerp)
+    ref.rightArm.rotation.x = THREE.MathUtils.lerp(ref.rightArm.rotation.x, rightTarget, armLerp)
+    ref.leftArm.rotation.z = THREE.MathUtils.lerp(ref.leftArm.rotation.z, sway, armLerp)
+    ref.rightArm.rotation.z = THREE.MathUtils.lerp(ref.rightArm.rotation.z, -sway, armLerp)
   }
 }

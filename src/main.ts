@@ -2,8 +2,14 @@ import * as THREE from 'three'
 import './style.css'
 import {
   canvas,
+  coinCallHeadsButton,
+  coinCallTailsButton,
+  coinTossKickButton,
+  coinTossReceiveButton,
   keys,
   kickFill,
+  kickoffNormalButton,
+  kickoffOnsideButton,
   newGameButton,
   patCall,
   patGoButton,
@@ -14,6 +20,7 @@ import {
   staminaFill,
   staminaMeter,
   state,
+  timeoutButton,
 } from './core.ts'
 import type { PlayTab } from './core.ts'
 import {
@@ -28,12 +35,17 @@ import {
   scene,
   startAudio,
   updateCrowd,
+  updateCrowdAudio,
   updateFireworks,
   updateJumbotronTicker,
   view,
 } from './world.ts'
-import { createPlayerView, updateKickBlockers } from './entities.ts'
+import { createPlayerView, updateKickBlockers, updateReferees } from './entities.ts'
 import {
+  callTimeout,
+  chooseCoinCall,
+  chooseCoinToss,
+  chooseKickoff,
   goForTwo,
   openTeamSelect,
   renderDefenseOptions,
@@ -71,12 +83,14 @@ function frame(time: number) {
   }
   if (state.kickFlight) updateKickFlight(delta)
   if (state.kickType || state.kickFlight) updateKickBlockers(delta)
+  updateReferees(delta)
   updateGame(delta)
   for (const cloud of clouds) {
     cloud.position.x += cloud.userData.drift * delta
     if (cloud.position.x > 300) cloud.position.x -= 600
   }
   updateCrowd(time)
+  updateCrowdAudio()
   updateJumbotronTicker(delta)
   updateFireworks(delta)
   const showStamina = state.running && !state.gameOver && !state.throwing && !state.kickType
@@ -86,7 +100,9 @@ function frame(time: number) {
     staminaFill.style.backgroundColor = state.gassed ? '#ef4444' : state.stamina < 0.3 ? '#f59e0b' : '#22c55e'
     staminaMeter.classList.toggle('is-gassed', state.gassed)
   }
-  if (!state.gameOver && state.running) updateHud()
+  // Refreshed every frame, not just live plays, so the clock visibly ticks
+  // through the play-call menu whenever the last play didn't stop it.
+  if (!state.gameOver) updateHud()
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
 }
@@ -188,4 +204,17 @@ patGoButton.addEventListener('click', () => {
   if (state.gameOver) return
   goForTwo()
 })
+coinCallHeadsButton.addEventListener('click', () => chooseCoinCall('heads'))
+coinCallTailsButton.addEventListener('click', () => chooseCoinCall('tails'))
+coinTossReceiveButton.addEventListener('click', () => chooseCoinToss(true))
+coinTossKickButton.addEventListener('click', () => chooseCoinToss(false))
+kickoffNormalButton.addEventListener('click', () => {
+  if (state.gameOver) return
+  chooseKickoff(false)
+})
+kickoffOnsideButton.addEventListener('click', () => {
+  if (state.gameOver) return
+  chooseKickoff(true)
+})
+timeoutButton.addEventListener('click', () => callTimeout())
 requestAnimationFrame(frame)

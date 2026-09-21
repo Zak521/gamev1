@@ -1,19 +1,28 @@
 import * as THREE from 'three'
 import {
+  CONFERENCE_IDS,
+  CONFERENCES,
   DEFENSE_PLAYBOOK,
   DIVISIONS,
-  DIVISION_IDS,
   EYE_HEIGHT,
-  INTER_PLAY_RUNOFF,
   OFFENSE_PLAYBOOK,
   OPPONENT_GOAL_LINE_Z,
   OT_SECONDS,
+  OUT_OF_BOUNDS_X,
   PLAY_CLOCK_SECONDS,
   QUARTER_SECONDS,
   TEAMS,
+  USER_END_ZONE_BACK_Z,
   USER_TWENTY_Z,
   ballOnFromZ,
   clockEl,
+  coinEl,
+  coinFlipStatus,
+  coinTossCall,
+  coinTossFlip,
+  coinTossPicker,
+  conferenceOptions,
+  conferenceSelect,
   defenseCall,
   defenseKicker,
   defenseOptions,
@@ -23,6 +32,9 @@ import {
   describeSpot,
   divisionOptions,
   divisionSelect,
+  divisionSelectBack,
+  divisionSelectKicker,
+  divisionsInConference,
   downAndDistance,
   downEl,
   formatClock,
@@ -35,6 +47,7 @@ import {
   kickFill,
   kickMeter,
   kickPrompt,
+  kickoffCall,
   linemen,
   loadSeason,
   losZ,
@@ -50,6 +63,8 @@ import {
   quarterEl,
   randomBetween,
   receivers,
+  coinShadowEl,
+  refereeTossArm,
   saveSeason,
   scoreEl,
   seasonRecordEl,
@@ -61,10 +76,13 @@ import {
   teamSelectBack,
   teamSelectKicker,
   teammates,
+  timeoutPanel,
+  timeoutsOpponentEl,
+  timeoutsUserEl,
   yardsEl,
   yardsLabelEl,
 } from './core.ts'
-import type { DefenseCall, Defender, DivisionId, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
+import type { ConferenceId, DefenseCall, Defender, DivisionId, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
 import { aimCamera, applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, rebuildCrowd, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
@@ -73,11 +91,24 @@ import {
   buildReceivers,
   clearKickBlockers,
   clearPlayers,
+  clearReferees,
   createDefender,
   createLineman,
+  signalReferees,
   spawnKickBlockers,
+  spawnReferees,
 } from './entities.ts'
-import { addPoints, clockExpiryForQuarter, kickIsGood, kickSuccessChance, opponentYardAfterTurnover, puntNetYards } from './gameRules.ts'
+import {
+  addPoints,
+  clockExpiryForQuarter,
+  kickIsGood,
+  kickSuccessChance,
+  kickoffNetYards,
+  onsideRecoverChance,
+  opponentKickoffNetYards,
+  opponentYardAfterTurnover,
+  puntNetYards,
+} from './gameRules.ts'
 
 // The AI offense's play call for a defensive series: either a run (a lane to
 // attack and a ball carrier speed) or a pass (routes for three receivers, plus
@@ -97,11 +128,6 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
   state.passTarget = null
   state.playTime = 0
   state.clockEventHandled = false
-  // Runoff between opponent snaps if their last play kept the clock alive.
-  if (!newSeries && !state.lastPlayStoppedClock && state.gameClock > INTER_PLAY_RUNOFF + 6) {
-    state.gameClock = Math.max(0, state.gameClock - INTER_PLAY_RUNOFF)
-  }
-  state.lastPlayStoppedClock = false
   // The current down's line of scrimmage — refreshed on every snap, not just
   // the start of a series, so it stays a correct fallback spot even on a play
   // with no ball carrier yet (an incomplete pass, a sack).
@@ -119,7 +145,14 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
     { kind: 'pass', name: 'Deep Shot', routes: [[-4, -8, 3, 34], [-18, -20, -22, 18], [18, 21, 23, 18]], readTime: 1.75 },
     { kind: 'pass', name: 'Screen Pass', routes: [[-11, -13, -15, 2], [11, 14, 17, 3], [1, 2, 3, 9]], readTime: 0.9 },
   ]
-  const opponentCall = opponentCalls[Math.floor(Math.random() * opponentCalls.length)]
+  // A kickoff/punt return isn't a called play — it's a returner catching the
+  // ball and improvising a lane, so force a plain "run" instead of picking
+  // from the normal playbook (which could otherwise hand them a pass play).
+  const isReturn = returnKind !== null
+  state.isReturnPlay = isReturn
+  const opponentCall: OpponentCall = isReturn
+    ? { kind: 'run', name: 'the return', lane: randomBetween(-8, 8), speed: 13.5 }
+    : opponentCalls[Math.floor(Math.random() * opponentCalls.length)]
   state.opponentPlay = opponentCall.name
   // Start on the defensive side and face the runner so every snap is a tackle attempt.
   state.cameraZ = Math.min(6, spotZ + 15)
@@ -182,14 +215,17 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
   resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
+  spawnReferees(spotZ)
   playCall.classList.add('is-hidden')
   const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
-  defenseKicker.textContent = newSeries
-    ? `Opponent chose ${state.opponentPlay} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
-    : `Opponent chose ${state.opponentPlay} · ${ordinal(state.defenseDown)} & ${togo}`
   const returnLabel = returnKind === 'kickoff' ? 'Kickoff return' : returnKind === 'punt' ? 'Punt return' : null
+  defenseKicker.textContent = returnLabel
+    ? `${returnLabel} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
+    : newSeries
+      ? `Opponent chose ${state.opponentPlay} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
+      : `Opponent chose ${state.opponentPlay} · ${ordinal(state.defenseDown)} & ${togo}`
   statusText.textContent = returnLabel
-    ? `${returnLabel}: opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
+    ? `${returnLabel} — choose your coverage, then run him down before he breaks free!`
     : `Opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
   renderDefenseOptions()
   defenseCall.classList.remove('is-hidden')
@@ -205,15 +241,205 @@ function schedule(fn: () => void, ms: number) {
   }, ms)
 }
 
-// Kick the ball to whichever side is receiving. Kickoffs are not played out;
-// the receiving team simply starts a possession near its own 25.
+// Kick the ball to whichever side is receiving. If the opponent is receiving,
+// it's your kickoff — line up at the meter, same as a punt or field goal
+// (with an onside option when you're trailing late). If you're receiving,
+// the opponent kicks automatically, since only you ever operate the meter.
 function kickoff(receiving: 'offense' | 'defense') {
   state.clockEventHandled = false
   if (receiving === 'offense') {
-    resetDrive(losZ(25))
-  } else {
-    startDefensiveSeries(defensiveSpotZ(25), 'kickoff')
+    statusText.textContent = 'Opponent lines up to kick off…'
+    updateHud()
+    schedule(() => simulateOpponentKickoff(), 900)
+    return
   }
+  if (onsideEligible()) {
+    statusText.textContent = 'You trail late — kick it away, or try an onside kick?'
+    updateHud()
+    kickoffCall.classList.remove('is-hidden')
+    return
+  }
+  state.onsideKick = false
+  startKick('kickoff', 65)
+}
+
+// Onside kicks are a trailing team's tool late in the game — offered only
+// when kicking off (never when receiving) with the clock working against you.
+function onsideEligible() {
+  return state.quarter >= 4 && state.score < state.opponentScore
+}
+
+// The player's choice from the kickoff dialog: a normal deep kick, or a
+// short onside attempt. Either way it plays out at the kick meter.
+export function chooseKickoff(onside: boolean) {
+  kickoffCall.classList.add('is-hidden')
+  state.onsideKick = onside
+  startKick('kickoff', onside ? 12 : 65)
+}
+
+// The opponent's own kickoff — an automatic decision, since only you ever run
+// the kick meter, but played out as a real, visible kick: the ball launches
+// off their tee and arcs toward you exactly like your own kickoff does (see
+// resolveKickoff/updateKickFlight), then settles into either a touchback or
+// an interactive return once it lands (see settleOpponentKickoffFlight).
+// Mostly a deep touchback, occasionally a live return, and — mirroring real
+// coaching — a shot at an onside kick if the opponent is trailing late, same
+// as the choice you get in the same spot.
+function simulateOpponentKickoff() {
+  if (state.gameOver) return
+  releaseMouse()
+  clearPlayers()
+  state.opponentKicking = true
+  const attemptsOnside = state.quarter >= 4 && state.opponentScore < state.score && Math.random() < 0.8
+  state.onsideKick = attemptsOnside
+  // "Own-yard" distance the kick travels, same convention as an opponent
+  // drive (0 = their goal line): an onside kick only has to clear 10 yards,
+  // a normal kick's net comes off the same touchback-weighted roll as before.
+  const netYards = attemptsOnside ? 10 : opponentKickoffNetYards(Math.random() < 0.35, Math.random())
+  const landingOwnYard = 35 + netYards
+  const userYard = 100 - landingOwnYard
+  const kickSpotZ = losZ(65) // the opponent's own 35, in user-perspective yards
+  // Clamp the visible landing spot to the back of your end zone — the real
+  // outcome (touchback or not) is still decided by the unclamped yardage above.
+  const toZ = Math.min(losZ(userYard), USER_END_ZONE_BACK_Z)
+  const from = new THREE.Vector3(0, 0.35, kickSpotZ + 1.4)
+  const to = new THREE.Vector3(randomBetween(-3, 3), 0.4, toZ)
+  const apex = attemptsOnside ? 3.5 : THREE.MathUtils.clamp(netYards * 0.32, 9, 20)
+  const dur = attemptsOnside ? 0.8 : THREE.MathUtils.clamp(netYards * 0.045, 1.6, 3.2)
+  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
+  // Spectate from around where you'll pick up the return — the same spot an
+  // interactive return would start from — facing upfield into the incoming kick.
+  state.cameraZ = toZ
+  camera.position.set(0, EYE_HEIGHT, toZ)
+  resetView()
+  playerView.position.x = 0
+  playerView.rotation.z = 0
+  // The opponent's coverage line, lined up at their kickoff spot just like
+  // your own coverage does before you kick.
+  const opponentTeam = TEAMS[state.opponentTeam]
+  for (const [index, x] of [-10.5, -6.3, -2.1, 2.1, 6.3, 10.5].entries()) {
+    createDefender(x, kickSpotZ, opponentTeam.primary, 40 + index, opponentTeam.id)
+  }
+  balls.player.visible = false
+  balls.thrown.visible = true
+  balls.thrown.position.copy(from)
+  state.kickFlight = {
+    t: 0,
+    dur,
+    from,
+    ctrl,
+    to,
+    type: 'kickoff',
+    // Carried through to settleOpponentKickoffFlight as the "own-yard" spot.
+    distance: landingOwnYard,
+    // Onside only: whether the kicking team (the opponent) wins the recovery race.
+    made: attemptsOnside ? Math.random() < 0.22 : true,
+    blocked: false,
+  }
+  statusText.textContent = attemptsOnside ? "Opponent tries an onside kick — it's a scramble!" : 'Opponent kicks off — the ball is up…'
+  updateHud()
+}
+
+// Settle the opponent's kickoff once it lands: an onside attempt is a
+// straight recovery race, a normal kick is either a touchback or a live
+// return you play out yourself (see startUserReturn). Mirrors
+// settleKickoffFlight, just with the outcomes flipped the other way.
+function settleOpponentKickoffFlight(landingOwnYard: number, recoveredByKicker: boolean) {
+  state.opponentKicking = false
+  const userYard = 100 - landingOwnYard
+  if (state.onsideKick) {
+    if (recoveredByKicker) {
+      statusText.textContent = `Opponent tries an onside kick — and recovers it at the ${describeSpot(userYard)}!`
+      updateHud()
+      schedule(() => startDefensiveSeries(defensiveSpotZ(landingOwnYard), null), 1000)
+      return
+    }
+    statusText.textContent = `Opponent tries an onside kick — you scoop it up at the ${describeSpot(userYard)}!`
+    updateHud()
+    schedule(() => resetDrive(losZ(userYard)), 1000)
+    return
+  }
+  if (landingOwnYard >= 100) {
+    statusText.textContent = 'Touchback — your ball on the 25.'
+    updateHud()
+    schedule(() => resetDrive(losZ(25)), 1000)
+    return
+  }
+  statusText.textContent = `Kickoff to the ${describeSpot(userYard)} — it's being returned!`
+  updateHud()
+  schedule(() => startUserReturn(losZ(userYard)), 300)
+}
+
+// Hands you an interactive return after a non-touchback kickoff: catch it
+// and run, with the kicking team's coverage bearing down on you. Ends in a
+// fresh 1st & 10 wherever you're brought down (see finishRunPlay).
+function startUserReturn(spotZ: number) {
+  if (state.gameOver) return
+  releaseMouse()
+  clearPlayers()
+  state.possession = 'offense'
+  state.selectedPlay = null
+  state.throwing = false
+  state.afterCatch = false
+  state.passTarget = null
+  state.playTime = 0
+  state.returning = true
+  state.running = true
+  state.runDelay = 0
+  state.playerX = 0
+  state.cameraZ = spotZ
+  state.ballOn = ballOnFromZ(spotZ)
+  state.carrierLaneX = 0
+  state.stamina = 1
+  state.gassed = false
+  state.sacked = false
+  state.pressureAnnounced = false
+  state.prevDirection = 0
+  state.playerVX = 0
+  state.playerVZ = 0
+  state.footstepTimer = 0
+  state.snapDownText = '1st & 10'
+  state.snapYardsText = describeSpot(state.ballOn)
+  camera.position.set(0, EYE_HEIGHT, state.cameraZ)
+  resetView()
+  playerView.position.x = 0
+  playerView.rotation.z = 0
+  spawnReferees(spotZ)
+  balls.player.visible = true
+  balls.thrown.visible = false
+  // The kicking team's coverage: spread downfield of the catch, closing fast.
+  const opponentTeam = TEAMS[state.opponentTeam]
+  for (let index = 0; index < 6; index += 1) {
+    const x = randomBetween(-16, 16)
+    const z = spotZ - (8 + index * 5)
+    const d = createDefender(x, z, opponentTeam.primary, 40 + index, opponentTeam.id)
+    d.role = 'rush'
+    d.speed = 12.5
+  }
+  statusText.textContent = 'Kick return — WASD to find a crease, Shift or Space to sprint!'
+  updateHud()
+}
+
+// Settle a played-out kickoff once the ball lands: an onside attempt is a
+// straight recovery race, a normal kick is either a touchback or a live
+// return (played out the same way a punt return is — as the opponent's
+// next defensive series, starting from the spot it came down).
+function settleKickoffFlight(landingYard: number, recovered: boolean) {
+  if (state.onsideKick) {
+    if (recovered) {
+      statusText.textContent = `ONSIDE KICK RECOVERED! Your ball at the ${describeSpot(landingYard)}.`
+      updateHud()
+      schedule(() => resetDrive(losZ(landingYard)), 1300)
+      return
+    }
+    giveBallToOpponent(100 - landingYard, `Onside kick — opponent recovers it at the ${describeSpot(landingYard)}.`)
+    return
+  }
+  if (landingYard >= 100) {
+    giveBallToOpponent(25, 'Kickoff into the end zone — touchback. Opponent ball on their 25.')
+    return
+  }
+  giveBallToOpponent(100 - landingYard, `Kickoff to the ${describeSpot(landingYard)} — it's being returned!`, 'kickoff')
 }
 
 function halftime() {
@@ -222,6 +448,11 @@ function halftime() {
   state.playClock = PLAY_CLOCK_SECONDS
   state.clockEventHandled = false
   state.running = false
+  // Timeouts and the two-minute warning both reset fresh for the second half.
+  state.timeoutsUser = 3
+  state.timeoutsOpponent = 3
+  state.twoMinuteWarningPending = false
+  state.twoMinuteWarningGiven = false
   // Whoever did NOT receive the opening kickoff gets the ball out of the half.
   const receiving = state.firstPossession === 'offense' ? 'defense' : 'offense'
   statusText.textContent = 'Second-half kickoff.'
@@ -237,6 +468,11 @@ function endGame() {
     state.playClock = PLAY_CLOCK_SECONDS
     state.clockEventHandled = false
     state.running = false
+    // The NFL gives each team two timeouts per overtime period.
+    state.timeoutsUser = 2
+    state.timeoutsOpponent = 2
+    state.twoMinuteWarningPending = false
+    state.twoMinuteWarningGiven = false
     statusText.textContent = 'OVERTIME — next score wins.'
     updateHud()
     const receiving = Math.random() < 0.5 ? 'offense' : 'defense'
@@ -249,6 +485,10 @@ function endGame() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  kickoffCall.classList.add('is-hidden')
+  coinTossPicker.classList.add('is-hidden')
+  coinTossFlip.classList.add('is-hidden')
+  coinTossCall.classList.add('is-hidden')
   const won = state.score > state.opponentScore
   const tied = state.score === state.opponentScore
   const season = loadSeason()
@@ -308,28 +548,109 @@ export function startGame() {
   state.twoPointActive = false
   state.kickType = null
   state.kickFlight = null
+  state.onsideKick = false
+  state.returning = false
+  state.isReturnPlay = false
+  state.timeoutsUser = 3
+  state.timeoutsOpponent = 3
+  state.twoMinuteWarningPending = false
+  state.twoMinuteWarningGiven = false
+  state.clockStopChecked = false
   clearKickBlockers()
+  clearReferees()
   state.stamina = 1
   state.gassed = false
   kickMeter.classList.add('is-hidden')
   staminaMeter.classList.add('is-hidden')
-  state.firstPossession = Math.random() < 0.5 ? 'offense' : 'defense'
   gameOverPanel.classList.add('is-hidden')
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  kickoffCall.classList.add('is-hidden')
+  coinTossPicker.classList.add('is-hidden')
+  coinTossFlip.classList.add('is-hidden')
+  coinTossCall.classList.add('is-hidden')
+  timeoutPanel.classList.add('is-hidden')
+  conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
-  statusText.textContent = state.firstPossession === 'offense'
+  coinEl.classList.remove('is-flipping', 'show-heads', 'show-tails')
+  coinShadowEl.classList.remove('is-flipping')
+  refereeTossArm.classList.remove('is-tossing')
+  statusText.textContent = 'The ref is heading out for the coin toss…'
+  updateHud()
+  coinTossPicker.classList.remove('is-hidden')
+}
+
+let pendingCoinCall: 'heads' | 'tails' | undefined
+
+// The player calls it in the air before the ref flips. A correct call wins
+// the toss (see chooseCoinToss()); a wrong call hands the same automatic
+// kick-or-receive odds a real opponent's choice would carry.
+export function chooseCoinCall(call: 'heads' | 'tails') {
+  pendingCoinCall = call
+  coinTossPicker.classList.add('is-hidden')
+  coinTossFlip.classList.add('is-hidden')
+  // Force a reflow so re-adding the animation classes restarts them cleanly
+  // even if a previous toss (e.g. a quick New Game) never finished.
+  void coinEl.offsetWidth
+  coinTossFlip.classList.remove('is-hidden')
+  coinFlipStatus.textContent = `You call ${call === 'heads' ? 'Heads' : 'Tails'}…`
+  coinEl.classList.remove('show-heads', 'show-tails')
+  refereeTossArm.classList.remove('is-tossing')
+  coinShadowEl.classList.remove('is-flipping')
+  requestAnimationFrame(() => {
+    coinEl.classList.add('is-flipping')
+    coinShadowEl.classList.add('is-flipping')
+    refereeTossArm.classList.add('is-tossing')
+  })
+  schedule(() => resolveCoinToss(), 1650)
+}
+
+function resolveCoinToss() {
+  const call = pendingCoinCall ?? 'heads'
+  const result: 'heads' | 'tails' = Math.random() < 0.5 ? 'heads' : 'tails'
+  coinEl.classList.remove('is-flipping')
+  coinShadowEl.classList.remove('is-flipping')
+  coinEl.classList.add(result === 'heads' ? 'show-heads' : 'show-tails')
+  const won = result === call
+  coinFlipStatus.textContent = `${result === 'heads' ? 'Heads' : 'Tails'}! ${won ? 'You win the toss.' : 'The opponent wins the toss.'}`
+  schedule(() => {
+    coinTossFlip.classList.add('is-hidden')
+    if (won) {
+      statusText.textContent = 'You won the toss…'
+      updateHud()
+      coinTossCall.classList.remove('is-hidden')
+      return
+    }
+    // Opponent won the toss — an automatic decision, same coin-flip odds a real
+    // team's choice comes down to between deferring and receiving.
+    state.firstPossession = Math.random() < 0.5 ? 'offense' : 'defense'
+    statusText.textContent = state.firstPossession === 'offense'
+      ? 'Opponent won the toss and elected to kick — you will receive.'
+      : 'Opponent won the toss and will receive.'
+    schedule(() => kickoff(state.firstPossession), 900)
+  }, 1300)
+}
+
+// The player's choice from the coin-toss dialog after winning the flip:
+// receive first (and give the ball up to start the second half — see
+// halftime(), which flips whoever did NOT get the opening kickoff onto
+// offense) or kick first (and receive to start the second half instead).
+export function chooseCoinToss(receive: boolean) {
+  coinTossCall.classList.add('is-hidden')
+  state.firstPossession = receive ? 'offense' : 'defense'
+  statusText.textContent = receive
     ? 'You won the toss and will receive.'
-    : 'Opponent won the toss and will receive.'
+    : 'You won the toss and elected to kick.'
   schedule(() => kickoff(state.firstPossession), 900)
 }
 
-// Shown before every new game so the player can pick a division, then a rival
-// from inside it. Picking a team recolors the opponent's end zone and
-// sideline, then starts the game; buildDefense() and startDefensiveSeries()
-// pick up state.opponentTeam for the players themselves.
+// Shown before every new game so the player can pick a conference, then a
+// division inside it, then a rival from inside that division. Picking a team
+// recolors the opponent's end zone and sideline, then starts the game;
+// buildDefense() and startDefensiveSeries() pick up state.opponentTeam for
+// the players themselves.
 export function openTeamSelect() {
   if (pendingTimer) clearTimeout(pendingTimer)
   pendingTimer = undefined
@@ -339,19 +660,49 @@ export function openTeamSelect() {
   playCall.classList.add('is-hidden')
   defenseCall.classList.add('is-hidden')
   patCall.classList.add('is-hidden')
+  kickoffCall.classList.add('is-hidden')
+  coinTossPicker.classList.add('is-hidden')
+  coinTossFlip.classList.add('is-hidden')
+  coinTossCall.classList.add('is-hidden')
+  timeoutPanel.classList.add('is-hidden')
+  divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
-  renderDivisionOptions()
+  renderConferenceOptions()
+  conferenceSelect.classList.remove('is-hidden')
+}
+
+function renderConferenceOptions() {
+  conferenceOptions.innerHTML = ''
+  for (const id of CONFERENCE_IDS) {
+    const conference = CONFERENCES[id]
+    const teamCount = divisionsInConference(id).reduce((sum, division) => sum + division.teamIds.length, 0)
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.innerHTML = `<strong>${conference.fullName}</strong><span>${teamCount} teams</span>`
+    button.addEventListener('click', () => chooseConference(id))
+    conferenceOptions.appendChild(button)
+  }
+}
+
+// Remembers which conference is being browsed so the team-select back button
+// can return to the right division list.
+let selectedConference: ConferenceId = 'NFC'
+
+function chooseConference(id: ConferenceId) {
+  selectedConference = id
+  divisionSelectKicker.textContent = `${CONFERENCES[id].name} · New Game`
+  renderDivisionOptions(id)
+  conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.remove('is-hidden')
 }
 
-function renderDivisionOptions() {
+function renderDivisionOptions(conferenceId: ConferenceId) {
   divisionOptions.innerHTML = ''
-  for (const id of DIVISION_IDS) {
-    const division = DIVISIONS[id]
+  for (const division of divisionsInConference(conferenceId)) {
     const button = document.createElement('button')
     button.type = 'button'
     button.innerHTML = `<strong>${division.name}</strong><span>${division.teamIds.length} teams</span>`
-    button.addEventListener('click', () => chooseDivision(id))
+    button.addEventListener('click', () => chooseDivision(division.id))
     divisionOptions.appendChild(button)
   }
 }
@@ -363,6 +714,12 @@ function chooseDivision(id: DivisionId) {
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.remove('is-hidden')
 }
+
+divisionSelectBack.addEventListener('click', () => {
+  divisionSelect.classList.add('is-hidden')
+  renderConferenceOptions()
+  conferenceSelect.classList.remove('is-hidden')
+})
 
 function renderTeamOptions(teamIds: TeamId[]) {
   teamOptions.innerHTML = ''
@@ -387,12 +744,15 @@ function chooseOpponent(id: TeamId) {
 
 teamSelectBack.addEventListener('click', () => {
   teamSelect.classList.add('is-hidden')
-  renderDivisionOptions()
+  renderDivisionOptions(selectedConference)
   divisionSelect.classList.remove('is-hidden')
 })
 
 // Central down-and-distance advance for every way the offense can end a play.
 export function gainTo(newBallOn: number, lead = '', clockStops = false) {
+  // A return that ends in a touchdown or a safety skips finishRunPlay's
+  // return-specific handling entirely, so clear the flag here too.
+  state.returning = false
   state.lastPlayStoppedClock = clockStops
   state.running = false
   state.ballOn = THREE.MathUtils.clamp(Math.round(newBallOn), 0, 100)
@@ -412,6 +772,7 @@ export function gainTo(newBallOn: number, lead = '', clockStops = false) {
   if (state.ballOn >= state.firstDownTarget) {
     state.down = 1
     state.firstDownTarget = Math.min(state.ballOn + 10, 100)
+    signalReferees('firstDown')
     offensiveMenu(lead || 'First down!')
     return
   }
@@ -491,6 +852,11 @@ export function startKick(type: KickType, distance: number) {
     state.ballOn = 85
     state.cameraZ = losZ(state.ballOn)
   }
+  // Kickoffs go from the kicking team's own 35, same as the NFL.
+  if (type === 'kickoff') {
+    state.ballOn = 35
+    state.cameraZ = losZ(state.ballOn)
+  }
   keys.sprint = false
   // Put the kicking unit on the field before the player takes the kick.
   // The goal post stays directly ahead, with the purple line protecting the holder.
@@ -500,16 +866,28 @@ export function startKick(type: KickType, distance: number) {
   resetView()
   playerView.position.x = 0
   playerView.rotation.z = 0
-  for (const [index, x] of [-7.2, -3.6, 0, 3.6, 7.2].entries()) {
-    createLineman(x, state.cameraZ - 4.8, 70 + index)
+  if (type === 'kickoff') {
+    // Your own coverage team spread along the line. Nobody rushes a
+    // kickoff, so unlike every other kick there's no block unit to spawn.
+    for (const [index, x] of [-10.5, -6.3, -2.1, 2.1, 6.3, 10.5].entries()) {
+      createLineman(x, state.cameraZ - 5, 40 + index)
+    }
+  } else {
+    for (const [index, x] of [-7.2, -3.6, 0, 3.6, 7.2].entries()) {
+      createLineman(x, state.cameraZ - 4.8, 70 + index)
+    }
+    // A second purple player beside the holder makes the extra-point unit feel set.
+    createLineman(2.8, state.cameraZ - 2.8, 88)
+    // The opponent's block unit lines up across the ball and rushes the kick.
+    spawnKickBlockers(state.cameraZ)
   }
-  // A second purple player beside the holder makes the extra-point unit feel set.
-  createLineman(2.8, state.cameraZ - 2.8, 88)
-  // The opponent's block unit lines up across the ball and rushes the kick.
-  spawnKickBlockers(state.cameraZ)
+  spawnReferees(state.cameraZ)
   balls.player.visible = true
   balls.thrown.visible = false
-  const label = type === 'extraPoint' ? 'Extra point' : type === 'punt' ? 'Punt' : `${distance}-yard field goal`
+  const label = type === 'extraPoint' ? 'Extra point'
+    : type === 'punt' ? 'Punt'
+    : type === 'kickoff' ? (state.onsideKick ? 'Onside kick' : 'Kickoff')
+    : `${distance}-yard field goal`
   kickPrompt.textContent = `${label} — press Space to kick`
   kickFill.style.width = '0%'
   kickMeter.classList.remove('is-hidden')
@@ -523,6 +901,10 @@ export function resolveKick() {
   kickMeter.classList.add('is-hidden')
   if (type === 'punt') {
     resolvePunt()
+    return
+  }
+  if (type === 'kickoff') {
+    resolveKickoff()
     return
   }
   const distance = state.kickDistance
@@ -594,6 +976,30 @@ function resolvePunt() {
   statusText.textContent = 'The punt is up…'
 }
 
+function resolveKickoff() {
+  const from = new THREE.Vector3(0, 0.35, state.cameraZ - 1.4)
+  let landingYard: number
+  let recovered = true
+  if (state.onsideKick) {
+    // Onside kicks only have to travel 10 yards before either team can
+    // legally recover them — the timing meter decides who gets there first.
+    landingYard = Math.min(100, state.ballOn + 10)
+    recovered = Math.random() < onsideRecoverChance(state.kickPower)
+  } else {
+    landingYard = Math.min(100, state.ballOn + kickoffNetYards(state.kickPower))
+  }
+  const to = new THREE.Vector3(randomBetween(-3, 3), 0.4, losZ(landingYard))
+  const netTravel = Math.max(10, landingYard - state.ballOn)
+  const apex = state.onsideKick ? 3.5 : THREE.MathUtils.clamp(netTravel * 0.32, 9, 20)
+  const dur = state.onsideKick ? 0.7 : THREE.MathUtils.clamp(netTravel * 0.045, 1.6, 3.2)
+  const ctrl = new THREE.Vector3((from.x + to.x) / 2, apex, (from.z + to.z) / 2)
+  state.kickFlight = { t: 0, dur, from, ctrl, to, type: 'kickoff', distance: landingYard, made: recovered, blocked: false }
+  balls.player.visible = false
+  balls.thrown.visible = true
+  balls.thrown.position.copy(from)
+  statusText.textContent = state.onsideKick ? "Onside kick — it's a scramble!" : 'The kickoff is up…'
+}
+
 export function updateKickFlight(delta: number) {
   const k = state.kickFlight
   if (!k) return
@@ -620,6 +1026,11 @@ function settleKick(type: KickType, distance: number, made: boolean, blocked = f
   clearKickBlockers()
   if (type === 'punt') {
     settlePunt(distance, blocked)
+    return
+  }
+  if (type === 'kickoff') {
+    if (state.opponentKicking) settleOpponentKickoffFlight(distance, made)
+    else settleKickoffFlight(distance, made)
     return
   }
   if (type === 'extraPoint') {
@@ -693,6 +1104,7 @@ export function turnOverOnDowns() {
 function scoreTouchdown() {
   state.running = false
   state.score = addPoints(state.score, 6)
+  signalReferees('touchdown')
   celebrateTouchdown()
   updateHud()
   // Overtime is sudden death — reaching the end zone ends it on the spot.
@@ -765,12 +1177,19 @@ function resolveTwoPoint(scored: boolean) {
 // Ends a defensive down that stayed a dead ball at some spot: a run tackle by
 // default, but also reused for a sack or an incomplete/broken-up pass by
 // passing an explicit spot and label instead of reading state.ballCarrier.
-export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; label?: string; allowFumble?: boolean }) {
+// `stopClock` mirrors gainTo's clockStops flag for the offense — pass true for
+// anything that's dead by rule (out of bounds, an incomplete/broken-up pass);
+// left false (the default), the clock keeps running into the next snap, same
+// as a real tackle in the field of play.
+export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; label?: string; allowFumble?: boolean; stopClock?: boolean }) {
   state.running = false
+  const wasReturn = state.isReturnPlay
+  state.isReturnPlay = false
   if (tackled) {
     const spotZ = opts?.spotZ ?? state.ballCarrier?.z ?? state.defenseFirstDownZ
     const label = opts?.label ?? 'TACKLE!'
     const allowFumble = opts?.allowFumble ?? true
+    const stopClock = opts?.stopClock ?? false
     // Punch it out: a takeaway that hands the ball straight to your offense.
     if (allowFumble && Math.random() < 0.05) {
       state.lastPlayStoppedClock = true
@@ -779,15 +1198,27 @@ export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; l
       schedule(() => resetDrive(spotZ), 1300)
       return
     }
+    // A return ends the moment the whistle blows — the tackle spot becomes a
+    // fresh 1st & 10 for the opponent, not another down in an existing series.
+    if (wasReturn) {
+      state.lastPlayStoppedClock = stopClock
+      statusText.textContent = `${label} Opponent starts their drive on the ${describeSpot(ballOnFromZ(spotZ))}.`
+      updateHud()
+      schedule(() => startDefensiveSeries(spotZ, null, true), 1200)
+      return
+    }
     const earnedFirstDown = spotZ - state.defenseFirstDownZ >= 10
     if (earnedFirstDown) {
+      state.lastPlayStoppedClock = stopClock
       state.defenseDown = 1
       state.defenseFirstDownZ = spotZ
+      signalReferees('firstDown')
       statusText.textContent = `${label} Opponent moved the chains — 1st & 10 on the ${describeSpot(ballOnFromZ(spotZ))}.`
       updateHud()
       schedule(() => startDefensiveSeries(spotZ, null, false), 1200)
       return
     }
+    state.lastPlayStoppedClock = stopClock
     state.defenseDown += 1
     if (state.defenseDown <= 4) {
       const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
@@ -802,6 +1233,7 @@ export function finishDefensivePlay(tackled: boolean, opts?: { spotZ?: number; l
     return
   }
   state.opponentScore = addPoints(state.opponentScore, 6)
+  signalReferees('touchdown')
   const patGood = Math.random() < 0.94
   if (patGood) state.opponentScore = addPoints(state.opponentScore, 1)
   statusText.textContent = `OPPONENT TOUCHDOWN — extra point ${patGood ? 'good' : 'no good'}. They lead ${state.opponentScore}-${state.score}.`
@@ -883,6 +1315,7 @@ function lineUpForSnap() {
   playerView.rotation.z = 0
   buildDefense()
   buildOffensiveLine()
+  spawnReferees(state.cameraZ)
 }
 
 export function renderPlayOptions() {
@@ -915,6 +1348,9 @@ export function renderDefenseOptions() {
 // The player picks a defensive call, which sets pursuit tuning, then the ball is snapped.
 function snapDefense(call: DefenseCall) {
   if (state.gameOver || state.possession !== 'defense') return
+  // The game clock has already been ticking in real time through the defense
+  // menu (tickClocks) if the last play didn't stop it — nothing to run off here.
+  state.lastPlayStoppedClock = false
   state.defenseCall = call
   defenseCall.classList.add('is-hidden')
   state.playTime = 0
@@ -1000,16 +1436,15 @@ export function startPlay(play: PlayId) {
   if (play === 'punt') { attemptPunt(); return }
   if (play === 'kneel') { kneelDown(); return }
   const runId = isRunId(play)
-  // Runoff: if the previous play kept the clock alive, the huddle burns ~25s.
-  if (!state.lastPlayStoppedClock && state.gameClock > INTER_PLAY_RUNOFF + 6) {
-    state.gameClock = Math.max(0, state.gameClock - INTER_PLAY_RUNOFF)
-  }
+  // The game clock has already been ticking in real time through the play-call
+  // menu (tickClocks) if the last play didn't stop it — nothing to run off here.
   state.lastPlayStoppedClock = false
   state.selectedPlay = play
   state.playTime = 0
   state.running = true
   state.throwing = false
   state.afterCatch = false
+  state.returning = false
   state.snapZ = state.cameraZ
   state.prevDirection = 0
   state.playerVX = 0
@@ -1082,6 +1517,15 @@ export function updateHud() {
   oppChipEl.style.background = cssHex(TEAMS[state.opponentTeam].primary)
   quarterEl.textContent = state.quarter >= 5 ? 'OT' : ordinal(state.quarter)
   clockEl.textContent = formatClock(state.gameClock)
+  timeoutsUserEl.textContent = String(state.timeoutsUser)
+  timeoutsOpponentEl.textContent = String(state.timeoutsOpponent)
+  // Only offer a timeout when it would actually do something: between plays,
+  // with one to spend, and the clock actually ticking toward the next snap —
+  // the huddle. The defense-call menu never has the clock running (see
+  // tickClocks), so a timeout there wouldn't stop anything and isn't offered.
+  const canCallTimeout = !state.gameOver && !state.running && !state.twoPointActive &&
+    state.timeoutsUser > 0 && !state.lastPlayStoppedClock && !playCall.classList.contains('is-hidden')
+  timeoutPanel.classList.toggle('is-hidden', !canCallTimeout)
   updateScoreboard()
   // While a play is live the marker holds at the snap value; it updates only
   // after the whistle, when the ball is spotted where the play ended.
@@ -1108,8 +1552,36 @@ export function finishRunPlay() {
   state.selectedPlay = null
   const wasAfterCatch = state.afterCatch
   state.afterCatch = false
-  const outOfBounds = Math.abs(state.playerX) >= 24
+  // playerX is free to run all the way to the real sideline (±SIDELINE_X) —
+  // this only trips once you actually get there, not at some earlier cap.
+  const outOfBounds = Math.abs(state.playerX) >= OUT_OF_BOUNDS_X
   const spotYard = ballOnFromZ(state.cameraZ)
+  // A return ends the instant you're down — it isn't a down in a drive, so
+  // wherever you end up becomes a fresh 1st & 10 instead of advancing downs.
+  if (state.returning) {
+    state.returning = false
+    state.running = false
+    if (state.sprinting && !outOfBounds && spotYard < 99 && Math.random() < 0.045) {
+      if (Math.random() < 0.5) {
+        giveBallToOpponent(100 - spotYard, 'FUMBLED RETURN — opponent recovers!')
+        return
+      }
+      statusText.textContent = 'FUMBLE — but you recover your own return!'
+      updateHud()
+      schedule(() => resetDrive(losZ(spotYard)), 1300)
+      return
+    }
+    statusText.textContent = outOfBounds ? 'Out of bounds — your drive starts here.' : 'Tackled! Your drive starts here.'
+    updateHud()
+    // resetDrive always marks the clock stopped (right for a touchback or a
+    // turnover); a return that's tackled in the field of play should instead
+    // keep running into the next snap, same as any other in-bounds tackle.
+    schedule(() => {
+      resetDrive(losZ(spotYard))
+      state.lastPlayStoppedClock = outOfBounds
+    }, 1200)
+    return
+  }
   // Taking a hit at full sprint in the field of play can jar the ball loose —
   // the price of running with the sprint button held down.
   if (state.sprinting && !outOfBounds && spotYard < 99 && Math.random() < 0.045) {
@@ -1121,7 +1593,7 @@ export function finishRunPlay() {
     gainTo(spotYard, 'FUMBLE — but you recover your own ball!', true)
     return
   }
-  gainTo(spotYard, wasAfterCatch ? 'Tackled after the catch.' : 'Tackled.', outOfBounds)
+  gainTo(spotYard, outOfBounds ? 'Out of bounds.' : wasAfterCatch ? 'Tackled after the catch.' : 'Tackled.', outOfBounds)
 }
 
 export function sack() {
@@ -1148,21 +1620,84 @@ export function tickClocks(delta: number) {
   if (state.gameOver) return
   // The two-point try, like a PAT, is untimed.
   if (state.twoPointActive) return
-  if (state.running) {
-    // Game clock runs during a live play.
+  const offenseMenuOpen = !playCall.classList.contains('is-hidden')
+  // The game clock runs during a live play, and — same as the real NFL —
+  // keeps right on running through the offense's huddle/play-call menu,
+  // whenever the last play didn't stop it (an in-bounds tackle or a caught,
+  // in-bounds pass), only stopping for an incomplete pass, an out-of-bounds
+  // play, a score, a penalty, a timeout, or the two-minute warning. The
+  // defense-call menu is the human taking their time to pick a call, not
+  // part of the simulated game clock, so it never runs while that's up.
+  if (state.running || (offenseMenuOpen && !state.lastPlayStoppedClock)) {
     state.gameClock = Math.max(0, state.gameClock - delta)
-    return
+    if (state.running) state.clockStopChecked = false
+    if (
+      !state.twoMinuteWarningGiven && !state.twoMinuteWarningPending &&
+      (state.quarter === 2 || state.quarter === 4 || state.quarter >= 5) &&
+      state.gameClock <= 120
+    ) {
+      if (state.running) {
+        // Noted the instant it crosses 2:00 mid-play; takes effect once this
+        // play is over, same as a real stoppage.
+        state.twoMinuteWarningPending = true
+      } else {
+        // Already between snaps with the clock running — the warning applies
+        // immediately, same as it stopping a running clock in real life.
+        state.twoMinuteWarningGiven = true
+        state.lastPlayStoppedClock = true
+        statusText.textContent = `TWO-MINUTE WARNING. ${statusText.textContent}`
+        updateHud()
+      }
+    }
   }
+  if (state.running) return
   // Between plays the play clock winds down while the play-call menu is open.
   if (!playCall.classList.contains('is-hidden')) {
     state.playClock = Math.max(0, state.playClock - delta)
     playCallKicker.textContent = `Offense · ${downAndDistance()} · Play clock ${Math.ceil(state.playClock)}`
     if (state.playClock <= 0) delayOfGame()
   }
-  // A quarter that expired mid-play is resolved once the ball is dead.
+  // Evaluated exactly once per dead-ball stoppage (reset the instant the
+  // next play goes live, above) — never repeated across frames spent
+  // sitting on a menu, since the opponent's timeout use below is a roll.
+  if (!state.clockStopChecked) {
+    state.clockStopChecked = true
+    if (state.twoMinuteWarningPending) {
+      // Was noted mid-play (above); takes effect now that the ball is dead.
+      state.twoMinuteWarningPending = false
+      state.twoMinuteWarningGiven = true
+      state.lastPlayStoppedClock = true
+      statusText.textContent = `TWO-MINUTE WARNING. ${statusText.textContent}`
+      updateHud()
+    } else if (
+      state.quarter >= 4 && !state.lastPlayStoppedClock && state.timeoutsOpponent > 0 &&
+      state.opponentScore < state.score && state.gameClock > 0 && state.gameClock < 120 &&
+      Math.random() < 0.7
+    ) {
+      // Mirrors a trailing real-NFL team burning a timeout late to keep the
+      // clock (and their own hopes) alive.
+      state.timeoutsOpponent -= 1
+      state.lastPlayStoppedClock = true
+      statusText.textContent = `Opponent calls a timeout. ${statusText.textContent}`
+      updateHud()
+    }
+  }
+  // A quarter that expired mid-play, or between plays with the clock still
+  // running, is resolved the instant it hits zero.
   if (state.gameClock <= 0 && !state.clockEventHandled) {
     handleClockExpired()
   }
+}
+
+// The offense's own timeout: available from the play-call or defense-call
+// menu whenever the clock is still running toward the next snap. Stops it
+// and spends one of your three per half (two in overtime), same as the NFL.
+export function callTimeout() {
+  if (state.gameOver || state.running || state.lastPlayStoppedClock || state.timeoutsUser <= 0) return
+  state.timeoutsUser -= 1
+  state.lastPlayStoppedClock = true
+  statusText.textContent = `TIMEOUT. Clock stopped — ${state.timeoutsUser} left. ${statusText.textContent}`
+  updateHud()
 }
 
 function delayOfGame() {

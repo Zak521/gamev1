@@ -49,3 +49,28 @@ export function puntNetYards(power: number) {
   const timing = 1 - Math.min(1, Math.abs(power - 54) / 34)
   return 32 + timing * 20
 }
+
+// Net kickoff yardage from the kicking team's own 35, off the same timing
+// meter as a punt or field goal. A kick right on the sweet spot (power 54)
+// goes for a touchback (35 + 65 = the goal line); a badly mistimed one is
+// short enough that the receiving team gets a live return.
+export function kickoffNetYards(power: number) {
+  const timing = 1 - Math.min(1, Math.abs(power - 54) / 34)
+  return 50 + timing * 20
+}
+
+// Recovery chance for a user-attempted onside kick, off the same timing
+// meter — a kick hit right on the sweet spot gives real "hands team" era
+// odds; a badly mistimed one is nearly unrecoverable.
+export function onsideRecoverChance(power: number) {
+  const timing = 1 - Math.min(1, Math.abs(power - 54) / 34)
+  return 0.08 + timing * 0.34
+}
+
+// The opponent's own automatic kickoff has no timing input to read, so its
+// net yardage is rolled instead: most (65%, set by the caller) come down in
+// the field of play for a live return, and the rest go for touchbacks
+// (`touchback` true) so the receiving team always has a real shot to return.
+export function opponentKickoffNetYards(touchback: boolean, roll: number) {
+  return touchback ? 66 + roll * 20 : 40 + roll * 20
+}
