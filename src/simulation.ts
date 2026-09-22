@@ -38,6 +38,10 @@ import {
 
 const passStart = new THREE.Vector3()
 
+// A wrapped-up ball carrier — on either side of the ball — has this flat
+// chance to shrug off the tackle outright and keep the play alive.
+const BREAK_TACKLE_CHANCE = 0.08
+
 export function throwTo(receiver: Receiver) {
   if (!state.running || state.throwing || state.afterCatch || isRunId(state.selectedPlay)) return
   state.throwing = true
@@ -324,6 +328,9 @@ export function updateGame(delta: number) {
         const badAngle = Math.abs(defender.x - state.playerX) > 1.1
         if (state.sprinting && cutThisFrame && badAngle && Math.random() < 0.5) {
           defender.stumbleUntil = state.playTime + 0.8
+        } else if (Math.random() < BREAK_TACKLE_CHANCE) {
+          // Every so often you just shrug the wrap-up off and stay on your feet.
+          defender.stumbleUntil = state.playTime + 0.5
         } else {
           finishRunPlay()
           return
@@ -608,17 +615,28 @@ function updateDefense(delta: number) {
 
   // --- Teammate pursuit + tackle checks (you or a teammate can make the stop).
   const tackleRadius = state.defTackleRadius
-  let tackled = Math.hypot(state.playerX - carrier.x, state.cameraZ - carrier.z) < tackleRadius
+  const playerContact = Math.hypot(state.playerX - carrier.x, state.cameraZ - carrier.z) < tackleRadius
+  let tackled = playerContact
+  const contactingTeammates: Defender[] = []
   for (const t of teammates) {
     pursueTarget(t, carrier.x, carrier.z, state.carrierJukeVX * (juking ? 1 : 0), fwd, delta)
     t.mesh.position.set(t.x, Math.abs(Math.sin(performance.now() * 0.013 + t.runPhase)) * 0.08, t.z)
-    if (Math.hypot(t.x - carrier.x, t.z - carrier.z) < tackleRadius) tackled = true
+    if (Math.hypot(t.x - carrier.x, t.z - carrier.z) < tackleRadius) {
+      tackled = true
+      contactingTeammates.push(t)
+    }
   }
   // A clean juke can beat a defender with a poor angle.
   if (tackled && juking && Math.abs(state.playerX - carrier.x) > 1.2 && state.bigPlayAllowed && Math.random() < 0.5) {
     state.bigPlayAllowed = false
     tackled = false
     state.playerBlockedUntil = state.playTime + 0.5
+  }
+  // Every so often the carrier just shrugs off the wrap-up and stays up.
+  if (tackled && Math.random() < BREAK_TACKLE_CHANCE) {
+    tackled = false
+    if (playerContact) state.playerBlockedUntil = state.playTime + 0.4
+    for (const t of contactingTeammates) t.stumbleUntil = state.playTime + 0.4
   }
   if (tackled) {
     finishDefensivePlay(true)
