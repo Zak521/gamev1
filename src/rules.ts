@@ -42,6 +42,11 @@ import {
   gameOverPanel,
   gameOverScore,
   gameOverTitle,
+  homeAwaySelect,
+  homeAwaySelectBack,
+  awayOptionSubEl,
+  pickHomeButton,
+  pickAwayButton,
   isRunId,
   keys,
   kickFill,
@@ -82,7 +87,7 @@ import {
   yardsEl,
   yardsLabelEl,
 } from './core.ts'
-import type { ConferenceId, DefenseCall, Defender, DivisionId, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
+import type { ConferenceId, DefenseCall, Defender, DivisionId, HomeAway, KickType, PlayId, RunPlayId, TeamId } from './core.ts'
 import { aimCamera, applyOpponentTeam, camera, celebrateTouchdown, playerView, playThrow, rebuildCrowd, releaseMouse, resetView, startAudio, updateScoreboard, world } from './world.ts'
 import {
   balls,
@@ -574,6 +579,7 @@ export function startGame() {
   conferenceSelect.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
+  homeAwaySelect.classList.add('is-hidden')
   coinEl.classList.remove('is-flipping', 'show-heads', 'show-tails')
   coinShadowEl.classList.remove('is-flipping')
   refereeTossArm.classList.remove('is-tossing')
@@ -667,6 +673,7 @@ export function openTeamSelect() {
   timeoutPanel.classList.add('is-hidden')
   divisionSelect.classList.add('is-hidden')
   teamSelect.classList.add('is-hidden')
+  homeAwaySelect.classList.add('is-hidden')
   renderConferenceOptions()
   conferenceSelect.classList.remove('is-hidden')
 }
@@ -736,16 +743,39 @@ function renderTeamOptions(teamIds: TeamId[]) {
 
 function chooseOpponent(id: TeamId) {
   state.opponentTeam = id
-  applyOpponentTeam()
-  rebuildCrowd()
   teamSelect.classList.add('is-hidden')
-  startGame()
+  openHomeAwaySelect()
 }
 
 teamSelectBack.addEventListener('click', () => {
   teamSelect.classList.add('is-hidden')
   renderDivisionOptions(selectedConference)
   divisionSelect.classList.remove('is-hidden')
+})
+
+// Last step before kickoff: home or away. Picking either applies the
+// opponent's sideline/field branding and starts the game — the only thing
+// that differs between the two is which team's colors dress the field
+// itself (see applyHomeField() in world.ts).
+function openHomeAwaySelect() {
+  awayOptionSubEl.textContent = `Play on the road — ${TEAMS[state.opponentTeam].fullName}'s branding covers the field`
+  homeAwaySelect.classList.remove('is-hidden')
+}
+
+function chooseHomeAway(homeAway: HomeAway) {
+  state.homeAway = homeAway
+  applyOpponentTeam()
+  rebuildCrowd()
+  homeAwaySelect.classList.add('is-hidden')
+  startGame()
+}
+
+pickHomeButton.addEventListener('click', () => chooseHomeAway('home'))
+pickAwayButton.addEventListener('click', () => chooseHomeAway('away'))
+
+homeAwaySelectBack.addEventListener('click', () => {
+  homeAwaySelect.classList.add('is-hidden')
+  teamSelect.classList.remove('is-hidden')
 })
 
 // Central down-and-distance advance for every way the offense can end a play.

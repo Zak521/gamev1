@@ -597,6 +597,13 @@ export function divisionsInConference(conference: ConferenceId): DivisionInfo[] 
 // Every team the player can pick as an opponent, across all divisions.
 export const OPPONENT_TEAM_IDS: TeamId[] = DIVISION_IDS.flatMap((id) => DIVISIONS[id].teamIds)
 
+// Whether the Vikings are hosting this game or visiting the opponent's
+// stadium — picked from the home/away dialog right after the opponent is
+// chosen. The player always plays as (and looks like) the Vikings either
+// way; only the field's branding (midfield logo, end zones, crowd mix)
+// belongs to whichever side is actually "home" on this field.
+export type HomeAway = 'home' | 'away'
+
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
@@ -776,6 +783,15 @@ app.innerHTML = `
         <div id="teamOptions" class="play-options team-options"></div>
         <button id="teamSelectBack" class="back-link" type="button">&larr; Back to divisions</button>
       </div>
+      <div id="homeAwaySelect" class="play-call is-hidden" role="dialog" aria-label="Choose home or away">
+        <span class="play-call-kicker">New Game</span>
+        <h2>Home or away?</h2>
+        <div class="play-options">
+          <button id="pickHome" type="button"><strong>Home</strong><span>Play at home — Vikings purple and gold cover the field</span></button>
+          <button id="pickAway" type="button"><strong>Away</strong><span id="awayOptionSub">Play on the road — the opponent's branding covers the field</span></button>
+        </div>
+        <button id="homeAwaySelectBack" class="back-link" type="button">&larr; Back to teams</button>
+      </div>
     </div>
     <div class="controls-panel">
       <div class="instructions">
@@ -828,6 +844,11 @@ export const teamSelect = document.querySelector<HTMLDivElement>('#teamSelect')!
 export const teamSelectKicker = document.querySelector<HTMLElement>('#teamSelectKicker')!
 export const teamOptions = document.querySelector<HTMLDivElement>('#teamOptions')!
 export const teamSelectBack = document.querySelector<HTMLButtonElement>('#teamSelectBack')!
+export const homeAwaySelect = document.querySelector<HTMLDivElement>('#homeAwaySelect')!
+export const awayOptionSubEl = document.querySelector<HTMLElement>('#awayOptionSub')!
+export const pickHomeButton = document.querySelector<HTMLButtonElement>('#pickHome')!
+export const pickAwayButton = document.querySelector<HTMLButtonElement>('#pickAway')!
+export const homeAwaySelectBack = document.querySelector<HTMLButtonElement>('#homeAwaySelectBack')!
 export const gameOverPanel = document.querySelector<HTMLDivElement>('#gameOverPanel')!
 export const gameOverTitle = document.querySelector<HTMLElement>('#gameOverTitle')!
 export const gameOverScore = document.querySelector<HTMLElement>('#gameOverScore')!
@@ -985,6 +1006,9 @@ export const state = {
   // Which NFC North rival is on the other sideline this game — set by the
   // team-select dialog before startGame() runs.
   opponentTeam: 'bears' as TeamId,
+  // Whether the Vikings are home or away this game — set by the home/away
+  // dialog, right after opponentTeam, before startGame() runs.
+  homeAway: 'home' as HomeAway,
 }
 
 // ---------------------------------------------------------------------------

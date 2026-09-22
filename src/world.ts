@@ -60,6 +60,16 @@ export const crowdBodyMeshes: THREE.InstancedMesh[] = []
 export const crowdShoulderMeshes: THREE.InstancedMesh[] = []
 let crowdGroup: THREE.Group | null = null
 
+// The field elements whose branding depends on which team is home this game
+// (midfield logo, end-zone turf, end-zone banners) — built once by
+// createField(), then repainted in place by applyHomeField().
+type HomeFieldRefs = {
+  midfieldLogo: THREE.Mesh
+  endZones: THREE.Mesh[]
+  banners: THREE.Mesh[]
+}
+let homeFieldRefs: HomeFieldRefs | null = null
+
 // The instanced crowd's head and arm layers (both skin-toned, shared across
 // every color bucket), wired up inside rebuildCrowd().
 export const crowdHead = { mesh: null as THREE.InstancedMesh | null }
@@ -329,6 +339,19 @@ function fieldNumber(text: string) {
   return number
 }
 
+// Paints (or repaints) a ground banner's text onto its own canvas — pulled
+// out of groundBanner() so applyHomeField() can re-letter an existing banner
+// mesh in place when the home team changes, instead of rebuilding it.
+function paintGroundBanner(bannerCanvas: HTMLCanvasElement, text: string, color: string) {
+  const ctx = bannerCanvas.getContext('2d')!
+  ctx.clearRect(0, 0, bannerCanvas.width, bannerCanvas.height)
+  ctx.fillStyle = color
+  ctx.font = 'bold 92px Arial'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, 256, 80)
+}
+
 // Wide banner text baked onto a flat plane and laid down like turf paint —
 // unlike a Sprite, a Mesh's rotation is respected, so this actually lies flat
 // on the field instead of standing up and billboarding toward the camera.
@@ -336,12 +359,7 @@ function groundBanner(text: string, color: string) {
   const bannerCanvas = document.createElement('canvas')
   bannerCanvas.width = 512
   bannerCanvas.height = 154
-  const ctx = bannerCanvas.getContext('2d')!
-  ctx.fillStyle = color
-  ctx.font = 'bold 92px Arial'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(text, 256, 80)
+  paintGroundBanner(bannerCanvas, text, color)
   const texture = new THREE.CanvasTexture(bannerCanvas)
   const banner = new THREE.Mesh(
     new THREE.PlaneGeometry(11, 3.3),
@@ -349,6 +367,15 @@ function groundBanner(text: string, color: string) {
   )
   banner.rotation.x = -Math.PI / 2
   return banner
+}
+
+// Repaints an existing ground banner mesh's texture with new text/color —
+// used when the home team on this field changes (see applyHomeField()).
+function updateGroundBanner(banner: THREE.Mesh, text: string, color: string) {
+  const material = banner.material as THREE.MeshBasicMaterial
+  const texture = material.map as THREE.CanvasTexture
+  paintGroundBanner(texture.image as HTMLCanvasElement, text, color)
+  texture.needsUpdate = true
 }
 
 // --- Team marks ---------------------------------------------------------------
@@ -1399,6 +1426,52 @@ function vikingsLogoTexture() {
   return vikingsLogoTextureCache
 }
 
+// Any other team's midfield mark: their helmet decal blown up into the same
+// gold-ringed roundel shape as the Vikings' — primary-colored disc, an
+// accent-colored ring, the team's mark, and its name underneath. Used when
+// that team is the home team on this field (see applyHomeField()). Built
+// once per team and cached, same as the Vikings' own logo texture.
+const teamFieldLogoTextureCache = new Map<TeamId, THREE.CanvasTexture>()
+function teamFieldLogoTexture(teamId: TeamId): THREE.CanvasTexture {
+  if (teamId === 'vikings') return vikingsLogoTexture()
+  const cached = teamFieldLogoTextureCache.get(teamId)
+  if (cached) return cached
+  const team = TEAMS[teamId]
+  const size = 512
+  const c = document.createElement('canvas')
+  c.width = c.height = size
+  const ctx = c.getContext('2d')!
+  ctx.clearRect(0, 0, size, size)
+  ctx.beginPath()
+  ctx.arc(size / 2, size / 2, 236, 0, Math.PI * 2)
+  ctx.fillStyle = cssHex(team.primary)
+  ctx.fill()
+  ctx.lineWidth = 18
+  ctx.strokeStyle = cssHex(team.accent)
+  ctx.stroke()
+  const mark = decalTextureForTeam(teamId)
+  if (mark) {
+    const markSize = 250
+    ctx.drawImage(mark.image as HTMLCanvasElement, (size - markSize) / 2, size / 2 + 40 - markSize / 2, markSize, markSize)
+  }
+  // Readable against the team's own primary color, same tint used for the
+  // jersey nameplate — and auto-shrunk so longer names (e.g. BUCCANEERS)
+  // still fit inside the ring.
+  ctx.fillStyle = team.nameplateText
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  let fontSize = 80
+  ctx.font = `bold ${fontSize}px Georgia, "Times New Roman", serif`
+  while (ctx.measureText(team.name).width > size * 0.8 && fontSize > 32) {
+    fontSize -= 4
+    ctx.font = `bold ${fontSize}px Georgia, "Times New Roman", serif`
+  }
+  ctx.fillText(team.name, size / 2, mark ? size / 2 + 150 : size / 2)
+  const texture = new THREE.CanvasTexture(c)
+  teamFieldLogoTextureCache.set(teamId, texture)
+  return texture
+}
+
 // ---------------------------------------------------------------------------
 // Field, stadium, sky, sidelines
 // ---------------------------------------------------------------------------
@@ -1535,7 +1608,8 @@ export function createField() {
     }
   }
 
-  // Vikings mark at midfield (the 50 is at z = -42).
+  // Home-team mark at midfield (the 50 is at z = -42) — starts as the
+  // Vikings; applyHomeField() repaints it if the player picks away.
   const midfieldLogo = new THREE.Mesh(
     new THREE.PlaneGeometry(17, 17),
     new THREE.MeshBasicMaterial({ map: vikingsLogoTexture(), transparent: true, depthWrite: false }),
@@ -1551,8 +1625,11 @@ export function createField() {
     world.add(sideline)
   }
 
-  // Both end zones belong to the Vikings — they're the home team on this
-  // field regardless of who the opponent is, so both ends read "GO VIKINGS".
+  // Both end zones belong to whichever side is home this game — the Vikings
+  // by default, or the chosen opponent once the player picks away (see
+  // applyHomeField()) — so both ends read "GO <home team>".
+  const endZones: THREE.Mesh[] = []
+  const banners: THREE.Mesh[] = []
   for (const z of [-97, 13]) {
     const endZone = new THREE.Mesh(
       new THREE.PlaneGeometry(53.3, END_ZONE_DEPTH),
@@ -1561,10 +1638,14 @@ export function createField() {
     endZone.rotation.x = -Math.PI / 2
     endZone.position.set(0, 0.02, z)
     world.add(endZone)
-    const banner = groundBanner('GO VIKINGS', '#fef08a')
+    endZones.push(endZone)
+    const banner = groundBanner('GO VIKINGS', TEAMS.vikings.nameplateText)
     banner.position.set(0, 0.08, z)
     world.add(banner)
+    banners.push(banner)
   }
+  homeFieldRefs = { midfieldLogo, endZones, banners }
+  applyHomeField()
 
   // End lines: the thick white stripe across the back of each end zone, level
   // with the goal-post support.
@@ -1760,12 +1841,16 @@ export function rebuildCrowd() {
     crowdMembers.push({ x, y, z, facing, phase: randomBetween(0, Math.PI * 2), scale, colorIndex, bodyIndex, headIndex })
   }
 
-  // Roughly 70% home purple, 10% the chosen opponent's color sprinkled in,
-  // and the rest spread evenly across the neutral street-clothes palette.
+  // Bucket 0 (Vikings purple) and bucket 1 (the chosen opponent) split 70/10
+  // when the Vikings are home — but on the road that flips: a packed house
+  // of the home crowd's colors with just a pocket of traveling Vikings fans.
+  // The rest is spread evenly across the neutral street-clothes palette.
+  const majorityColorIndex = state.homeAway === 'home' ? 0 : 1
+  const minorityColorIndex = state.homeAway === 'home' ? 1 : 0
   const crowdColor = () => {
     const roll = Math.random()
-    if (roll < 0.7) return 0
-    if (roll < 0.8) return 1
+    if (roll < 0.7) return majorityColorIndex
+    if (roll < 0.8) return minorityColorIndex
     return 2 + Math.floor(Math.random() * neutralFanColors.length)
   }
 
@@ -2256,18 +2341,49 @@ export function buildOpponentSideline() {
   opponentSidelineGroup = group
 }
 
-// Benches and coaching staff on each sideline: the Vikings (home, purple) on
-// the near side, and the chosen NFC North opponent across the way.
+// Benches and coaching staff on each sideline: the Vikings — the player's
+// own team, always purple, regardless of home/away — on the near side, and
+// the chosen opponent across the way. Which side is actually "home" for
+// branding purposes is a separate question; see applyHomeField().
 export function createSidelines() {
   buildSidelineBench(-29, Math.PI / 2, 'vikings', 0x0f172a, TEAMS.vikings.accent, world)
   buildOpponentSideline()
 }
 
-// Rebuilds the opponent-colored sideline to match state.opponentTeam. Call
-// once, right after the team is chosen. (Both end zones stay Vikings' colors
-// — they're the home team regardless of who the opponent is.)
+// Whichever team owns this stadium: the Vikings when the player picked
+// home, otherwise the chosen opponent.
+function homeFieldTeam(): TeamInfo {
+  return state.homeAway === 'home' ? TEAMS.vikings : TEAMS[state.opponentTeam]
+}
+
+// Repaints the field's home-team branding — midfield logo, end-zone turf
+// color, and end-zone banners — to match whichever team is home right now
+// (state.homeAway + state.opponentTeam). Safe to call before createField()
+// has run (it just no-ops until the refs exist).
+export function applyHomeField() {
+  if (!homeFieldRefs) return
+  const team = homeFieldTeam()
+  const midfieldMaterial = homeFieldRefs.midfieldLogo.material as THREE.MeshBasicMaterial
+  midfieldMaterial.map = teamFieldLogoTexture(team.id)
+  midfieldMaterial.needsUpdate = true
+  for (const endZone of homeFieldRefs.endZones) {
+    const material = endZone.material as THREE.MeshStandardMaterial
+    const oldMap = material.map
+    material.map = tiledGrass(team.primary, 53.3, END_ZONE_DEPTH)
+    material.needsUpdate = true
+    oldMap?.dispose()
+  }
+  for (const banner of homeFieldRefs.banners) {
+    updateGroundBanner(banner, `GO ${team.name}`, team.nameplateText)
+  }
+}
+
+// Rebuilds the opponent-colored sideline and the field's home-team branding
+// to match state.opponentTeam and state.homeAway. Call once, right after
+// the opponent and home/away are chosen.
 export function applyOpponentTeam() {
   buildOpponentSideline()
+  applyHomeField()
   drawJumbotronTicker()
 }
 
@@ -2290,8 +2406,9 @@ export function drawJumbotronTicker() {
   ctx.font = 'bold 40px Arial'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  const away = TEAMS[state.opponentTeam]
-  const message = `TOUCHDOWN RUSH   •   NFC NORTH SHOWDOWN   •   VIKINGS VS ${away.name}   •   `
+  const opponent = TEAMS[state.opponentTeam]
+  const matchup = state.homeAway === 'home' ? `VIKINGS VS ${opponent.name}` : `${opponent.name} VS VIKINGS`
+  const message = `TOUCHDOWN RUSH   •   NFC NORTH SHOWDOWN   •   ${matchup}   •   `
   ctx.fillText(message.repeat(2), 0, c.height / 2)
   texture.needsUpdate = true
 }
