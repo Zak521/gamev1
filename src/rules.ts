@@ -5,6 +5,7 @@ import {
   DEFENSE_PLAYBOOK,
   DIVISIONS,
   EYE_HEIGHT,
+  MOVE_SCALE,
   OFFENSE_PLAYBOOK,
   OPPONENT_GOAL_LINE_Z,
   OT_SECONDS,
@@ -122,7 +123,7 @@ type OpponentCall =
   | { kind: 'run'; name: string; lane: number; speed: number }
   | { kind: 'pass'; name: string; routes: Array<[number, number, number, number]>; readTime: number }
 
-export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'punt' | null, newSeries = true) {
+export function startDefensiveSeries(spotZ: number, returnKind: 'punt' | null, newSeries = true) {
   if (state.gameOver) return
   releaseMouse()
   clearPlayers()
@@ -223,7 +224,7 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'kickoff' | 'pun
   spawnReferees(spotZ)
   playCall.classList.add('is-hidden')
   const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
-  const returnLabel = returnKind === 'kickoff' ? 'Kickoff return' : returnKind === 'punt' ? 'Punt return' : null
+  const returnLabel = returnKind === 'punt' ? 'Punt return' : null
   defenseKicker.textContent = returnLabel
     ? `${returnLabel} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
     : newSeries
@@ -320,10 +321,15 @@ function simulateOpponentKickoff() {
   playerView.position.x = 0
   playerView.rotation.z = 0
   // The opponent's coverage line, lined up at their kickoff spot just like
-  // your own coverage does before you kick.
+  // your own coverage does before you kick — and, same as your own coverage,
+  // it actually sprints downfield while the ball is in the air (see the
+  // state.opponentKicking branch of updateKickFlight) instead of standing
+  // still until you catch it.
   const opponentTeam = TEAMS[state.opponentTeam]
   for (const [index, x] of [-10.5, -6.3, -2.1, 2.1, 6.3, 10.5].entries()) {
-    createDefender(x, kickSpotZ, opponentTeam.primary, 40 + index, opponentTeam.id)
+    const coverage = createDefender(x, kickSpotZ, opponentTeam.primary, 40 + index, opponentTeam.id)
+    coverage.role = 'rush'
+    coverage.speed = randomBetween(11, 13)
   }
   balls.player.visible = false
   balls.thrown.visible = true
@@ -381,7 +387,11 @@ function settleOpponentKickoffFlight(landingOwnYard: number, recoveredByKicker: 
 function startUserReturn(spotZ: number) {
   if (state.gameOver) return
   releaseMouse()
-  clearPlayers()
+  // Don't clearPlayers() here — that would wipe the kicking team's coverage
+  // line, which has been sprinting toward you since the kick (see the
+  // state.opponentKicking branch of updateKickFlight) and should carry
+  // whatever ground it's already covered straight into the return.
+  clearReferees()
   state.possession = 'offense'
   state.selectedPlay = null
   state.throwing = false
@@ -412,23 +422,15 @@ function startUserReturn(spotZ: number) {
   spawnReferees(spotZ)
   balls.player.visible = true
   balls.thrown.visible = false
-  // The kicking team's coverage: spread downfield of the catch, closing fast.
-  const opponentTeam = TEAMS[state.opponentTeam]
-  for (let index = 0; index < 6; index += 1) {
-    const x = randomBetween(-16, 16)
-    const z = spotZ - (8 + index * 5)
-    const d = createDefender(x, z, opponentTeam.primary, 40 + index, opponentTeam.id)
-    d.role = 'rush'
-    d.speed = 12.5
-  }
   statusText.textContent = 'Kick return — WASD to find a crease, Shift or Space to sprint!'
   updateHud()
 }
 
 // Settle a played-out kickoff once the ball lands: an onside attempt is a
 // straight recovery race, a normal kick is either a touchback or a live
-// return (played out the same way a punt return is — as the opponent's
-// next defensive series, starting from the spot it came down).
+// return. Unlike a punt/turnover, the return team is already on the field —
+// see resolveKickoff — so this hands the return off to beginKickoffReturn
+// instead of teleporting a fresh cast in via giveBallToOpponent.
 function settleKickoffFlight(landingYard: number, recovered: boolean) {
   if (state.onsideKick) {
     if (recovered) {
@@ -441,10 +443,56 @@ function settleKickoffFlight(landingYard: number, recovered: boolean) {
     return
   }
   if (landingYard >= 100) {
+    // No return unit was spawned for a touchback (see resolveKickoff) — just
+    // clear your coverage sprint off the field and hand it over.
     giveBallToOpponent(25, 'Kickoff into the end zone — touchback. Opponent ball on their 25.')
     return
   }
-  giveBallToOpponent(100 - landingYard, `Kickoff to the ${describeSpot(landingYard)} — it's being returned!`, 'kickoff')
+  beginKickoffReturn(landingYard)
+}
+
+// Hands off from the coverage sprint into a live return: the returner and
+// his blockers were already spawned onto the field the instant you kicked
+// (see resolveKickoff), and your own coverage has been sprinting downfield
+// this whole time (see the no-carrier branch of updateDefense). A kickoff
+// return is continuous action, unlike a turnover or a fresh defensive series
+// starting from a dead ball — you're already mid-sprint when the catch
+// happens — so this goes straight into the live chase instead of stopping
+// for the usual "choose your coverage" call first; pausing there after a
+// live first-person sprint read as the return simply not happening.
+function beginKickoffReturn(landingYard: number) {
+  const spotZ = losZ(landingYard)
+  state.possession = 'defense'
+  state.isReturnPlay = true
+  state.defenseSnapZ = spotZ
+  state.defenseFirstDownZ = spotZ
+  state.defenseDown = 1
+  const returner = defenders[0] ?? null
+  state.ballCarrier = returner
+  state.carrierLaneX = returner ? returner.x : 0
+  state.bigPlayAllowed = true
+  state.playerBlockedUntil = 0
+  state.carrierJukeVX = 0
+  state.carrierJukeUntil = 0
+  state.carrierNextJuke = 1
+  state.oppQB = null
+  state.oppPassPlayActive = false
+  state.oppThrown = false
+  state.oppPassTarget = null
+  // Same tuning as the base defensive call — there's no menu here to pick a
+  // different one from.
+  state.defTackleRadius = 1.7
+  state.defCarrierSpeedMul = 1
+  state.playTime = 0
+  state.snapDownText = 'Kickoff return'
+  state.snapYardsText = describeSpot(landingYard)
+  spawnReferees(spotZ)
+  playCall.classList.add('is-hidden')
+  defenseCall.classList.add('is-hidden')
+  defenseKicker.textContent = `Kickoff return · ball on the ${describeSpot(landingYard)}`
+  statusText.textContent = 'He caught it — run him down!'
+  state.running = true
+  updateHud()
 }
 
 function halftime() {
@@ -848,7 +896,7 @@ function safety() {
 // Hand the ball to the opponent (played as your defensive series) at a spot given
 // as the opponent's own yard line (1-99 from their goal). Pass 'punt' as
 // returnKind to dramatize the handoff as a live return instead of a dead spot.
-export function giveBallToOpponent(oppYard: number, message: string, returnKind: 'kickoff' | 'punt' | null = null) {
+export function giveBallToOpponent(oppYard: number, message: string, returnKind: 'punt' | null = null) {
   // An interception or fumble on a two-point try just fails the try — no return.
   if (state.twoPointActive) {
     resolveTwoPoint(false)
@@ -897,10 +945,12 @@ export function startKick(type: KickType, distance: number) {
   playerView.position.x = 0
   playerView.rotation.z = 0
   if (type === 'kickoff') {
-    // Your own coverage team spread along the line. Nobody rushes a
-    // kickoff, so unlike every other kick there's no block unit to spawn.
+    // Your own coverage team spread along the line, as real running players
+    // (not the bulkier lineman build) since resolveKickoff sends them
+    // sprinting downfield with you the instant the ball is struck — nobody
+    // rushes a kickoff, so unlike every other kick there's no block unit to spawn.
     for (const [index, x] of [-10.5, -6.3, -2.1, 2.1, 6.3, 10.5].entries()) {
-      createLineman(x, state.cameraZ - 5, 40 + index)
+      createDefender(x, state.cameraZ - 5, TEAMS.vikings.primary, 40 + index, 'vikings', false, teammates)
     }
   } else {
     for (const [index, x] of [-7.2, -3.6, 0, 3.6, 7.2].entries()) {
@@ -1027,7 +1077,45 @@ function resolveKickoff() {
   balls.player.visible = false
   balls.thrown.visible = true
   balls.thrown.position.copy(from)
-  statusText.textContent = state.onsideKick ? "Onside kick — it's a scramble!" : 'The kickoff is up…'
+  // A real kickoff (not the onside scramble) hands you control right away —
+  // you're a member of the coverage unit now, sprinting downfield alongside
+  // real teammates the instant it's kicked, not a lone camera over an empty
+  // field. The return team is already down there waiting on the ball too,
+  // same as a real NFL kickoff — nobody is conjured up once it lands.
+  if (state.onsideKick) {
+    statusText.textContent = "Onside kick — it's a scramble!"
+    return
+  }
+  // Your coverage line is already standing there from startKick — just turn
+  // the pre-kick lineup loose downfield instead of spawning a second one.
+  for (const t of teammates) {
+    t.speed = randomBetween(12.5, 14.5)
+  }
+  // A touchback never gets returned, so there's no return unit to put on the
+  // field for it — just your coverage sprinting down to a dead ball.
+  if (landingYard < 100) {
+    const opponentTeam = TEAMS[state.opponentTeam]
+    for (let index = 0; index < 7; index += 1) {
+      const x = index === 0 ? randomBetween(-6, 6) : randomBetween(-16, 16)
+      const z = to.z + (index === 0 ? 0 : randomBetween(4, 14))
+      const returnMan = createDefender(x, z, index === 0 ? opponentTeam.accent : opponentTeam.primary, 10 + index, opponentTeam.id, index === 0)
+      returnMan.speed = index === 0 ? 13.5 : 11
+    }
+  }
+  state.possession = 'defense'
+  state.running = true
+  state.ballCarrier = null
+  state.playTime = 0
+  state.playerBlockedUntil = 0
+  state.stamina = 1
+  state.gassed = false
+  state.prevDirection = 0
+  state.playerVX = 0
+  state.playerVZ = 0
+  state.footstepTimer = 0
+  state.snapDownText = 'Kickoff'
+  state.snapYardsText = 'Ball in the air'
+  statusText.textContent = 'Kickoff away — sprint downfield! WASD to run, Shift or Space to turn on the jets.'
 }
 
 export function updateKickFlight(delta: number) {
@@ -1043,6 +1131,16 @@ export function updateKickFlight(delta: number) {
     m * m * k.from.z + 2 * m * p * k.ctrl.z + p * p * k.to.z,
   )
   balls.thrown.rotation.x += delta * 12
+  // The opponent's own kickoff coverage sprints toward you while you're only
+  // spectating the flight (no control until startUserReturn hands you the
+  // ball) — see the coverage line spawned in simulateOpponentKickoff.
+  if (k.type === 'kickoff' && state.opponentKicking) {
+    for (const d of defenders) {
+      d.z += d.speed * delta * MOVE_SCALE
+      d.mesh.position.set(d.x, Math.abs(Math.sin(performance.now() * 0.012 + d.runPhase)) * 0.08, d.z)
+      d.mesh.rotation.z = Math.sin(performance.now() * 0.012 + d.runPhase) * 0.035
+    }
+  }
   if (p >= 1) {
     balls.thrown.visible = false
     const done = k

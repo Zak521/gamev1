@@ -57,6 +57,11 @@ The renderer and first-person input need a quick browser check after changes:
   HUD updates, and the next play/try flow are visible and responsive.
 - [ ] Complete a field goal or punt and time a kick with Space; verify the kick
   meter, ball flight, and resulting possession update.
+- [ ] Kick off (not onside): confirm you get movement control the instant you
+  kick, can sprint downfield with WASD/Shift while the ball is in the air,
+  and — on a live return — end up chasing the returner from wherever you
+  ran to rather than snapping to a new spot. Confirm a touchback still hands
+  the ball over cleanly with no leftover control.
 - [ ] On a touch device or emulator, use Left, Right, and Sprint to confirm the
   on-screen controls work and do not obstruct essential HUD elements.
 
@@ -99,7 +104,10 @@ On-screen **Left / Right / Sprint** buttons are provided for touch devices.
   try from the 2, field goals (3), and safeties (2).
 - Special teams: playable kickoffs (normal or onside when trailing late,
   with real return chances), punts, field goals, and a victory kneel to burn
-  clock.
+  clock. On a normal kickoff you get control the instant you kick it —
+  sprint downfield with the coverage unit while the ball is in the air, then
+  chase down and tackle the returner from wherever that sprint actually got
+  you, same as real kickoff coverage.
 - Offensive plays are grouped into Pass, Run, and Special Teams tabs in the
   play-call panel.
 - Defensive play calls — Base 4-3, Blitz, Cover 2, Goal Line, QB Spy,

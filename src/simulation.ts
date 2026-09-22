@@ -528,6 +528,14 @@ function updateDefense(delta: number) {
 
   const carrier = state.ballCarrier
   if (!carrier) {
+    // Kickoff coverage: the ball's still in the air (or just landed for a
+    // touchback) — your teammates sprint straight downfield in their lanes
+    // right alongside you until there's a returner to actually chase.
+    for (const t of teammates) {
+      t.z -= t.speed * delta * MOVE_SCALE
+      t.mesh.position.set(t.x, Math.abs(Math.sin(performance.now() * 0.012 + t.runPhase)) * 0.08, t.z)
+      t.mesh.rotation.z = Math.sin(performance.now() * 0.012 + t.runPhase) * 0.035
+    }
     updateHud()
     return
   }
