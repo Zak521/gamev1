@@ -2533,11 +2533,16 @@ export function updateCrowd(time: number) {
 
 // A very loud, layered stadium roar — filtered noise for the crowd, a rising
 // tonal sheen on top, and a short whistle. Peaks far above the ambient cheer.
-function playTouchdownRoar() {
+// `home` is true when this is your own building (state.homeAway === 'home');
+// on the road it's the opponent's crowd in their own house, so your score
+// only gets a short, much quieter scatter of noise from the pocket of
+// traveling fans instead of the building roaring for you.
+function playTouchdownRoar(home: boolean) {
   const ac = audioContext
   if (!ac || ac.state !== 'running') return
   const now = ac.currentTime
-  const dur = 3.2
+  const dur = home ? 3.2 : 1.1
+  const scale = home ? 1 : 0.2
 
   const noise = ac.createBufferSource()
   const buffer = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate)
@@ -2548,13 +2553,13 @@ function playTouchdownRoar() {
   band.type = 'bandpass'
   band.Q.value = 0.7
   band.frequency.setValueAtTime(500, now)
-  band.frequency.linearRampToValueAtTime(1500, now + 1.2)
+  band.frequency.linearRampToValueAtTime(1500, now + Math.min(1.2, dur * 0.4))
   band.frequency.linearRampToValueAtTime(900, now + dur)
   const roarGain = ac.createGain()
   roarGain.gain.setValueAtTime(0.0001, now)
-  roarGain.gain.exponentialRampToValueAtTime(0.16, now + 0.08)
-  roarGain.gain.linearRampToValueAtTime(0.45, now + 0.8)
-  roarGain.gain.setValueAtTime(0.45, now + 1.7)
+  roarGain.gain.exponentialRampToValueAtTime(0.16 * scale, now + 0.08)
+  roarGain.gain.linearRampToValueAtTime(0.45 * scale, now + Math.min(0.8, dur * 0.3))
+  roarGain.gain.setValueAtTime(0.45 * scale, now + Math.min(1.7, dur * 0.55))
   roarGain.gain.exponentialRampToValueAtTime(0.0001, now + dur)
   noise.connect(band).connect(roarGain).connect(ac.destination)
   noise.start(now)
@@ -2565,13 +2570,13 @@ function playTouchdownRoar() {
     const oscGain = ac.createGain()
     osc.type = 'sawtooth'
     osc.frequency.setValueAtTime(180 + detune * 3, now)
-    osc.frequency.linearRampToValueAtTime(430 + detune * 4, now + 1)
+    osc.frequency.linearRampToValueAtTime(430 + detune * 4, now + Math.min(1, dur * 0.35))
     oscGain.gain.setValueAtTime(0.0001, now)
-    oscGain.gain.exponentialRampToValueAtTime(0.06, now + 0.15)
-    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 2.4)
+    oscGain.gain.exponentialRampToValueAtTime(0.06 * scale, now + 0.15)
+    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + Math.min(2.4, dur * 0.85))
     osc.connect(oscGain).connect(ac.destination)
     osc.start(now)
-    osc.stop(now + 2.5)
+    osc.stop(now + Math.min(2.5, dur * 0.9))
   }
 
   const whistle = ac.createOscillator()
@@ -2580,7 +2585,7 @@ function playTouchdownRoar() {
   whistle.frequency.setValueAtTime(2200, now)
   whistle.frequency.linearRampToValueAtTime(2650, now + 0.3)
   whistleGain.gain.setValueAtTime(0.0001, now)
-  whistleGain.gain.exponentialRampToValueAtTime(0.035, now + 0.05)
+  whistleGain.gain.exponentialRampToValueAtTime(0.035 * scale, now + 0.05)
   whistleGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.6)
   whistle.connect(whistleGain).connect(ac.destination)
   whistle.start(now)
@@ -2701,10 +2706,17 @@ export function updateFireworks(delta: number) {
 }
 
 // One call, fired on a user touchdown: a roar, fireworks, and Vikings fans
-// leaping out of their seats for a few seconds.
+// leaping out of their seats for a few seconds. On the road (state.homeAway
+// === 'away') this is the opponent's building, not yours — the fireworks are
+// the stadium's own pyro for a home score, so those stay off, and the roar
+// is cut down to a scatter of noise from the traveling fans (see
+// playTouchdownRoar). The crowd's jump animation already only ever applies
+// to the Vikings-colored fans (see updateCrowd), so it stays on unscaled —
+// it just reads as a small pocket celebrating instead of the whole bowl.
 export function celebrateTouchdown() {
-  playTouchdownRoar()
-  launchFireworks()
+  const home = state.homeAway === 'home'
+  playTouchdownRoar(home)
+  if (home) launchFireworks()
   crowdHypeUntil = performance.now() + 4200
 }
 
