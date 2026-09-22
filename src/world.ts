@@ -286,7 +286,7 @@ export function roundedBox(width: number, height: number, depth: number, radius:
 // Text sprites & team marks
 // ---------------------------------------------------------------------------
 
-export function labelSprite(text: string, color = '#ffffff') {
+export function labelSprite(text: string, color = '#ffffff', outlineColor?: string) {
   const labelCanvas = document.createElement('canvas')
   labelCanvas.width = 256
   labelCanvas.height = 128
@@ -302,6 +302,13 @@ export function labelSprite(text: string, color = '#ffffff') {
   while (fontSize > 30 && labelContext.measureText(text).width > 232) {
     fontSize -= 2
     labelContext.font = `bold ${fontSize}px Arial`
+  }
+  if (outlineColor) {
+    // A dark outline keeps the number readable against every jersey/kit color.
+    labelContext.lineJoin = 'round'
+    labelContext.strokeStyle = outlineColor
+    labelContext.lineWidth = fontSize * 0.16
+    labelContext.strokeText(text, 128, 64)
   }
   labelContext.fillText(text, 128, 64)
   const texture = new THREE.CanvasTexture(labelCanvas)

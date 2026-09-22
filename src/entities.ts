@@ -99,7 +99,7 @@ export function createDefender(x: number, z: number, color: number, number: numb
     collar.position.set(0, 2.04, 0.02)
     group.add(collar)
   }
-  const jerseyNumber = labelSprite(String(number), kit?.numberColor ?? '#ffffff')
+  const jerseyNumber = labelSprite(String(number), kit?.numberColor ?? '#ffffff', '#0b1220')
   jerseyNumber.position.set(0, 1.25, 0.47)
   jerseyNumber.scale.set(1.3, 0.7, 1)
   jerseyNumber.renderOrder = 2
@@ -332,7 +332,8 @@ export function createReceiver(x: number, breakX: number, targetX: number, route
   heldFootball.visible = false
   group.add(heldFootball)
   const marker = new THREE.Mesh(
-    new THREE.RingGeometry(0.48, 0.68, 20),
+    // Sized generously — this ring doubles as the click target for "throw to this receiver".
+    new THREE.RingGeometry(0.8, 1.15, 20),
     new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide, transparent: true, opacity: 0.95 }),
   )
   marker.rotation.x = -Math.PI / 2
@@ -496,31 +497,36 @@ export function buildDefense() {
   }
   const los = state.cameraZ
   const opponent = TEAMS[state.opponentTeam]
+  // A two-point try is snapped from the 2 — crowd the line, play tight man
+  // everywhere, and take away the cushion a defense would normally give.
+  const goalLine = state.twoPointActive
+  const speedUp = goalLine ? 1.5 : 0
   // Four down linemen rushing the passer / attacking the run.
   const lineX = [-6.5, -2.4, 2.4, 6.5]
   for (let i = 0; i < 4; i += 1) {
-    const d = createDefender(lineX[i] + randomBetween(-0.4, 0.4), los - 8 - randomBetween(0, 1), opponent.primary, 90 + i, opponent.id)
+    const d = createDefender(lineX[i] + randomBetween(-0.4, 0.4), los - (goalLine ? 6 : 8) - randomBetween(0, 1), opponent.primary, 90 + i, opponent.id)
     d.role = 'rush'
-    d.speed = 12
+    d.speed = 12 + speedUp
   }
   // Three linebackers: a spy on the quarterback plus two underneath defenders.
   const lbX = [-6, 0, 6]
   for (let i = 0; i < 3; i += 1) {
-    const d = createDefender(lbX[i], los - 15 - randomBetween(0, 2), opponent.primary, 50 + i, opponent.id)
+    const d = createDefender(lbX[i], los - (goalLine ? 10 : 15) - randomBetween(0, 2), opponent.primary, 50 + i, opponent.id)
     d.role = i === 1 ? 'spy' : 'man'
     d.coverIndex = i === 0 ? 0 : 2
     d.homeX = lbX[i]
-    d.speed = 13
+    d.speed = 13 + speedUp
   }
-  // Two corners in man coverage, two safeties playing deep zone.
+  // Two corners in man coverage, two safeties playing deep zone — on a
+  // two-point try the safeties come up into tight man too, no deep help.
   const dbX = [-15, 15, -6, 6]
   for (let i = 0; i < 4; i += 1) {
-    const deep = i >= 2
-    const d = createDefender(dbX[i], los - (deep ? 30 : 17) - randomBetween(0, 3), opponent.primary, 20 + i, opponent.id)
+    const deep = i >= 2 && !goalLine
+    const d = createDefender(dbX[i], los - (deep ? 30 : goalLine ? 11 : 17) - randomBetween(0, 3), opponent.primary, 20 + i, opponent.id)
     d.role = deep ? 'zone' : 'man'
     d.coverIndex = deep ? -1 : i
     d.homeX = dbX[i]
-    d.speed = deep ? 12.5 : 13.5
+    d.speed = (deep ? 12.5 : 13.5) + speedUp
   }
 }
 
