@@ -62,6 +62,8 @@ import {
   opponentScoreEl,
   ordinal,
   patCall,
+  penaltyFlag,
+  penaltyFlagText,
   playCall,
   playCallKicker,
   playOptions,
@@ -225,14 +227,16 @@ export function startDefensiveSeries(spotZ: number, returnKind: 'punt' | null, n
   playCall.classList.add('is-hidden')
   const togo = Math.max(1, Math.ceil(state.defenseFirstDownZ + 10 - spotZ))
   const returnLabel = returnKind === 'punt' ? 'Punt return' : null
-  defenseKicker.textContent = returnLabel
+  state.defenseKickerBase = returnLabel
     ? `${returnLabel} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
     : newSeries
-      ? `Opponent chose ${state.opponentPlay} · ball on the ${describeSpot(ballOnFromZ(spotZ))}`
-      : `Opponent chose ${state.opponentPlay} · ${ordinal(state.defenseDown)} & ${togo}`
+      ? `Ball on the ${describeSpot(ballOnFromZ(spotZ))}`
+      : `${ordinal(state.defenseDown)} & ${togo}`
+  state.playClock = PLAY_CLOCK_SECONDS
+  defenseKicker.textContent = `${state.defenseKickerBase} · Play clock ${PLAY_CLOCK_SECONDS}`
   statusText.textContent = returnLabel
     ? `${returnLabel} — choose your coverage, then run him down before he breaks free!`
-    : `Opponent picked ${state.opponentPlay}. Choose your defense, then make the tackle.`
+    : `Choose your defense, then make the tackle.`
   renderDefenseOptions()
   defenseCall.classList.remove('is-hidden')
   updateHud()
@@ -245,6 +249,20 @@ function schedule(fn: () => void, ms: number) {
     pendingTimer = undefined
     fn()
   }, ms)
+}
+
+// A brief on-screen flag banner for penalties — separate from the single-slot
+// `schedule` above (which drives play-to-play sequencing) so a flag popping
+// up never cancels or gets cancelled by the next snap's scheduled action.
+let penaltyFlagTimer: ReturnType<typeof setTimeout> | undefined
+function showPenaltyFlag(text: string) {
+  if (penaltyFlagTimer) clearTimeout(penaltyFlagTimer)
+  penaltyFlagText.textContent = text
+  penaltyFlag.classList.remove('is-hidden')
+  penaltyFlagTimer = setTimeout(() => {
+    penaltyFlagTimer = undefined
+    penaltyFlag.classList.add('is-hidden')
+  }, 2200)
 }
 
 // Kick the ball to whichever side is receiving. If the opponent is receiving,
@@ -1523,6 +1541,22 @@ function snapDefense(call: DefenseCall) {
   updateHud()
 }
 
+// The play clock ran out on the defense menu — a delay-of-game equivalent
+// against the defense, same 5-yard penalty as the offense's own delay of
+// game, just in the other direction: it hands the yardage to the opponent's
+// offense. The down is replayed (not advanced), with a fresh random
+// opponent call and a full play clock, same as any other re-huddle.
+function autoPickDefense() {
+  state.playClock = PLAY_CLOCK_SECONDS
+  if (state.gameOver || state.possession !== 'defense' || defenseCall.classList.contains('is-hidden')) return
+  const spotYard = ballOnFromZ(state.defenseSnapZ)
+  const penalizedYard = Math.max(1, spotYard - 5)
+  startDefensiveSeries(losZ(penalizedYard), null, false)
+  statusText.textContent = `Defense not set in time — 5-yard penalty. ${statusText.textContent}`
+  showPenaltyFlag('Defense Delay · 5 yards')
+  updateHud()
+}
+
 // Switch control to whichever of your teammates is nearest the action (the
 // ball carrier, the pass target, or the QB before the snap) — like tapping the
 // player-switch button in an NFL game. The teammate you leave behind picks up
@@ -1785,6 +1819,14 @@ export function tickClocks(delta: number) {
     playCallKicker.textContent = `Offense · ${downAndDistance()} · Play clock ${Math.ceil(state.playClock)}`
     if (state.playClock <= 0) delayOfGame()
   }
+  // Same play clock, ticking against the defense while you're picking a
+  // coverage call instead of a play — run out of time and the defense snaps
+  // into a base call for you, same spirit as the offense's delay of game.
+  if (!defenseCall.classList.contains('is-hidden')) {
+    state.playClock = Math.max(0, state.playClock - delta)
+    defenseKicker.textContent = `${state.defenseKickerBase} · Play clock ${Math.ceil(state.playClock)}`
+    if (state.playClock <= 0) autoPickDefense()
+  }
   // Evaluated exactly once per dead-ball stoppage (reset the instant the
   // next play goes live, above) — never repeated across frames spent
   // sitting on a menu, since the opponent's timeout use below is a roll.
@@ -1835,5 +1877,6 @@ function delayOfGame() {
   state.cameraZ = losZ(state.ballOn)
   state.lastPlayStoppedClock = true
   statusText.textContent = `Delay of game — 5-yard penalty. ${downAndDistance()} on the ${describeSpot(state.ballOn)}.`
+  showPenaltyFlag('Delay of Game · 5 yards')
   updateHud()
 }

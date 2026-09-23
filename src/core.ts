@@ -145,9 +145,9 @@ export const isRunId = (id: PlayId | null): id is RunPlayId => !!id && (RUN_IDS 
 export { END_ZONE_DEPTH, USER_TWENTY_Z } from './gameMath.ts'
 
 // Game-structure tunables (see plan: Rules & game structure).
-export const QUARTER_SECONDS = 300
+export const QUARTER_SECONDS = 240
 export const OT_SECONDS = 180
-export const PLAY_CLOCK_SECONDS = 40
+export const PLAY_CLOCK_SECONDS = 25
 
 // Movement feel tunables: a global speed trim on every player, and the
 // first-person eye height (raise it to make "you" feel taller on the field).
@@ -688,6 +688,10 @@ app.innerHTML = `
         </div>
       </div>
       <div class="status-panel"><span id="statusText">Break through the defense!</span></div>
+      <div id="penaltyFlag" class="penalty-flag is-hidden" role="status" aria-live="assertive">
+        <span>&#x2691; Flag on the play</span>
+        <strong id="penaltyFlagText"></strong>
+      </div>
       <div id="timeoutPanel" class="timeout-panel is-hidden">
         <button id="timeoutButton" type="button">Call Timeout</button>
       </div>
@@ -826,6 +830,8 @@ export const downEl = document.querySelector<HTMLElement>('#down')!
 export const quarterEl = document.querySelector<HTMLElement>('#quarter')!
 export const clockEl = document.querySelector<HTMLElement>('#clock')!
 export const statusText = document.querySelector<HTMLElement>('#statusText')!
+export const penaltyFlag = document.querySelector<HTMLDivElement>('#penaltyFlag')!
+export const penaltyFlagText = document.querySelector<HTMLElement>('#penaltyFlagText')!
 export const timeoutsUserEl = document.querySelector<HTMLElement>('#timeoutsUser')!
 export const timeoutsOpponentEl = document.querySelector<HTMLElement>('#timeoutsOpponent')!
 export const timeoutPanel = document.querySelector<HTMLDivElement>('#timeoutPanel')!
@@ -1012,6 +1018,9 @@ export const state = {
   // Countdown between footstep sound effects; frame-scratch, reset on each snap.
   footstepTimer: 0,
   opponentPlay: 'Inside Run',
+  // The defense-call kicker's label sans play clock, so tickClocks can append
+  // "· Play clock N" to it every frame without recomputing down/distance text.
+  defenseKickerBase: '',
   // Which NFC North rival is on the other sideline this game — set by the
   // team-select dialog before startGame() runs.
   opponentTeam: 'bears' as TeamId,
