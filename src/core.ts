@@ -594,6 +594,15 @@ export function divisionsInConference(conference: ConferenceId): DivisionInfo[] 
   return DIVISION_IDS.map((id) => DIVISIONS[id]).filter((division) => division.conference === conference)
 }
 
+// Which conference a given team belongs to. Every selectable opponent is
+// listed under a division above; the Vikings themselves aren't (they're the
+// player's team, not a pickable opponent) but play in the NFC North.
+export function conferenceForTeam(teamId: TeamId): ConferenceId {
+  if (teamId === 'vikings') return 'NFC'
+  const division = DIVISION_IDS.map((id) => DIVISIONS[id]).find((d) => d.teamIds.includes(teamId))
+  return division?.conference ?? 'NFC'
+}
+
 // Every team the player can pick as an opponent, across all divisions.
 export const OPPONENT_TEAM_IDS: TeamId[] = DIVISION_IDS.flatMap((id) => DIVISIONS[id].teamIds)
 

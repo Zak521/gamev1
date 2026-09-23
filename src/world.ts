@@ -6,6 +6,7 @@ import {
   EYE_HEIGHT,
   TEAMS,
   canvas,
+  conferenceForTeam,
   cssHex,
   downAndDistance,
   formatClock,
@@ -15,7 +16,7 @@ import {
   randomBetween,
   state,
 } from './core.ts'
-import type { CrowdMember, TeamId, TeamInfo } from './core.ts'
+import type { ConferenceId, CrowdMember, TeamId, TeamInfo } from './core.ts'
 import {
   UNIFORM_KITS,
   addKitHelmetStripe,
@@ -61,12 +62,15 @@ export const crowdShoulderMeshes: THREE.InstancedMesh[] = []
 let crowdGroup: THREE.Group | null = null
 
 // The field elements whose branding depends on which team is home this game
-// (midfield logo, end-zone turf, end-zone banners) — built once by
-// createField(), then repainted in place by applyHomeField().
+// (midfield logo, end-zone turf, end-zone banners, conference badges) — built
+// once by createField(), then repainted in place by applyHomeField().
 type HomeFieldRefs = {
   midfieldLogo: THREE.Mesh
   endZones: THREE.Mesh[]
   banners: THREE.Mesh[]
+  conferenceLogos: THREE.Mesh[]
+  endZoneMarks: THREE.Mesh[]
+  endZoneTrims: THREE.Mesh[]
 }
 let homeFieldRefs: HomeFieldRefs | null = null
 
@@ -344,6 +348,57 @@ function fieldNumber(text: string) {
   )
   number.rotation.x = -Math.PI / 2
   return number
+}
+
+// The conference badge stenciled by each 25-yard line — a blue "N" ringed
+// with stars for an NFC host, a red "A" for an AFC one. Real NFL fields carry
+// this same mark, and since it tracks whichever team's stadium this is (see
+// applyHomeField()), it's a quick way to tell an NFC building from an AFC one
+// at a glance. Cached per conference since there are only ever two variants.
+const conferenceLogoTextureCache: Partial<Record<ConferenceId, THREE.CanvasTexture>> = {}
+function conferenceLogoTexture(conference: ConferenceId) {
+  const cached = conferenceLogoTextureCache[conference]
+  if (cached) return cached
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const ctx = c.getContext('2d')!
+  const cx = 128
+  const cy = 128
+  const fill = conference === 'NFC' ? '#1d3f91' : '#b91c1c'
+  ctx.beginPath()
+  ctx.arc(cx, cy, 118, 0, Math.PI * 2)
+  ctx.fillStyle = fill
+  ctx.fill()
+  ctx.lineWidth = 8
+  ctx.strokeStyle = '#ffffff'
+  ctx.stroke()
+  // A ring of small stars just inside the badge's edge.
+  ctx.fillStyle = '#ffffff'
+  const starCount = 10
+  for (let i = 0; i < starCount; i += 1) {
+    const angle = (Math.PI * 2 * i) / starCount - Math.PI / 2
+    const sx = cx + Math.cos(angle) * 97
+    const sy = cy + Math.sin(angle) * 97
+    starPath(ctx, sx, sy, 9, 4)
+    ctx.fill()
+  }
+  // The conference initial, big and bold at the center.
+  ctx.font = 'bold 148px Arial'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(conference === 'NFC' ? 'N' : 'A', cx, cy + 6)
+  const texture = new THREE.CanvasTexture(c)
+  conferenceLogoTextureCache[conference] = texture
+  return texture
+}
+
+function conferenceLogoDecal(conference: ConferenceId) {
+  const decal = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.2, 4.2),
+    new THREE.MeshBasicMaterial({ map: conferenceLogoTexture(conference), transparent: true, depthWrite: false }),
+  )
+  decal.rotation.x = -Math.PI / 2
+  return decal
 }
 
 // Paints (or repaints) a ground banner's text onto its own canvas — pulled
@@ -1498,14 +1553,28 @@ function grassTexture(colorHex: number) {
   ctx.fillStyle = `#${base.getHexString()}`
   ctx.fillRect(0, 0, size, size)
   const blade = new THREE.Color()
-  for (let i = 0; i < 1100; i += 1) {
-    blade.copy(base).offsetHSL(0, 0, randomBetween(-0.08, 0.08))
+  for (let i = 0; i < 1700; i += 1) {
+    blade.copy(base).offsetHSL(0, 0, randomBetween(-0.09, 0.09))
     ctx.strokeStyle = `#${blade.getHexString()}`
     ctx.lineWidth = randomBetween(1, 1.8)
     const x = Math.random() * size
     const y = Math.random() * size
     const angle = randomBetween(0, Math.PI * 2)
     const len = randomBetween(2, 5)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len)
+    ctx.stroke()
+  }
+  // A second, finer pass of short blades for extra close-up texture depth.
+  for (let i = 0; i < 700; i += 1) {
+    blade.copy(base).offsetHSL(0, 0, randomBetween(-0.05, 0.05))
+    ctx.strokeStyle = `#${blade.getHexString()}`
+    ctx.lineWidth = randomBetween(0.6, 1)
+    const x = Math.random() * size
+    const y = Math.random() * size
+    const angle = randomBetween(0, Math.PI * 2)
+    const len = randomBetween(1, 2.4)
     ctx.beginPath()
     ctx.moveTo(x, y)
     ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len)
@@ -1547,17 +1616,35 @@ export function createField() {
   field.position.set(0, 0, -42)
   world.add(field)
 
-  // Alternating mow stripes down the 100 yards of playing field.
+  // A checkerboard mow pattern down the 100 yards of playing field — each
+  // 5-yard band split into left/right halves with the shade alternating
+  // across both axes, the classic mowed look real NFL fields carry instead
+  // of plain straight stripes.
   const stripeShades = [0x1c8446, 0x17703b]
+  const stripeHalfWidth = 53.3 / 2
   for (let yard = 0; yard < 100; yard += 5) {
-    const shade = stripeShades[(yard / 5) % 2]
-    const stripe = new THREE.Mesh(
-      new THREE.PlaneGeometry(53.3, 5),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(shade, 53.3, 5), roughness: 0.95 }),
-    )
-    stripe.rotation.x = -Math.PI / 2
-    stripe.position.set(0, 0.008, 8 - yard - 2.5)
-    world.add(stripe)
+    const z = 8 - yard - 2.5
+    for (const half of [0, 1]) {
+      const shade = stripeShades[(Math.floor(yard / 5) + half) % 2]
+      const stripe = new THREE.Mesh(
+        new THREE.PlaneGeometry(stripeHalfWidth, 5),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(shade, stripeHalfWidth, 5), roughness: 0.95 }),
+      )
+      stripe.rotation.x = -Math.PI / 2
+      stripe.position.set(half === 0 ? -stripeHalfWidth / 2 : stripeHalfWidth / 2, 0.008, z)
+      world.add(stripe)
+    }
+  }
+
+  // Faint sod-seam lines running the length of the field, evenly spaced
+  // across the width — the barely-there seams between rolled turf strips
+  // that keep the field from reading as one flat sheet of green.
+  const seamMaterial = new THREE.MeshBasicMaterial({ color: 0x0b3d1f, transparent: true, opacity: 0.08, depthWrite: false })
+  for (let x = -24; x <= 24; x += 3) {
+    const seam = new THREE.Mesh(new THREE.PlaneGeometry(0.06, 100), seamMaterial)
+    seam.rotation.x = -Math.PI / 2
+    seam.position.set(x, 0.009, -42)
+    world.add(seam)
   }
 
   const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
@@ -1632,12 +1719,30 @@ export function createField() {
     world.add(sideline)
   }
 
+  // Conference badge at each 25-yard line, out toward the sideline — the
+  // same mark real NFL fields carry. Starts NFC (the Vikings' own
+  // conference); applyHomeField() repaints it for whichever conference is
+  // actually hosting.
+  const conferenceLogos: THREE.Mesh[] = []
+  for (const z of [-17, -67]) {
+    for (const x of [-22, 22]) {
+      const logo = conferenceLogoDecal('NFC')
+      logo.position.set(x, 0.032, z)
+      world.add(logo)
+      conferenceLogos.push(logo)
+    }
+  }
+
   // Both end zones belong to whichever side is home this game — the Vikings
   // by default, or the chosen opponent once the player picks away (see
-  // applyHomeField()) — so both ends read "GO <home team>".
+  // applyHomeField()) — so both ends read "GO <home team>", carry that
+  // team's mark as a big faint watermark, and get an accent-color trim band
+  // just inside the end line.
   const endZones: THREE.Mesh[] = []
   const banners: THREE.Mesh[] = []
-  for (const z of [-97, 13]) {
+  const endZoneMarks: THREE.Mesh[] = []
+  const endZoneTrims: THREE.Mesh[] = []
+  for (const [z, trimZ] of [[-97, -101.25], [13, 17.25]] as const) {
     const endZone = new THREE.Mesh(
       new THREE.PlaneGeometry(53.3, END_ZONE_DEPTH),
       new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(TEAMS.vikings.primary, 53.3, END_ZONE_DEPTH), roughness: 0.92 }),
@@ -1646,12 +1751,35 @@ export function createField() {
     endZone.position.set(0, 0.02, z)
     world.add(endZone)
     endZones.push(endZone)
+
+    const trim = new THREE.Mesh(
+      new THREE.PlaneGeometry(53.3, 1.5),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, map: tiledGrass(TEAMS.vikings.accent, 53.3, 1.5), roughness: 0.9 }),
+    )
+    trim.rotation.x = -Math.PI / 2
+    trim.position.set(0, 0.022, trimZ)
+    world.add(trim)
+    endZoneTrims.push(trim)
+
+    const initialMark = decalTextureForTeam(TEAMS.vikings.id)
+    const mark = new THREE.Mesh(
+      new THREE.PlaneGeometry(7, 7),
+      new THREE.MeshBasicMaterial({ map: initialMark ?? undefined, transparent: true, depthWrite: false, opacity: 0.3 }),
+    )
+    mark.rotation.x = -Math.PI / 2
+    mark.position.set(0, 0.05, z)
+    mark.renderOrder = 1
+    mark.visible = !!initialMark
+    world.add(mark)
+    endZoneMarks.push(mark)
+
     const banner = groundBanner('GO VIKINGS', TEAMS.vikings.nameplateText)
     banner.position.set(0, 0.08, z)
+    banner.renderOrder = 2
     world.add(banner)
     banners.push(banner)
   }
-  homeFieldRefs = { midfieldLogo, endZones, banners }
+  homeFieldRefs = { midfieldLogo, endZones, banners, conferenceLogos, endZoneMarks, endZoneTrims }
   applyHomeField()
 
   // End lines: the thick white stripe across the back of each end zone, level
@@ -2513,6 +2641,26 @@ export function applyHomeField() {
   }
   for (const banner of homeFieldRefs.banners) {
     updateGroundBanner(banner, `GO ${team.name}`, team.nameplateText)
+  }
+  for (const trim of homeFieldRefs.endZoneTrims) {
+    const material = trim.material as THREE.MeshStandardMaterial
+    const oldMap = material.map
+    material.map = tiledGrass(team.accent, 53.3, 1.5)
+    material.needsUpdate = true
+    oldMap?.dispose()
+  }
+  const mark = decalTextureForTeam(team.id)
+  for (const markMesh of homeFieldRefs.endZoneMarks) {
+    const material = markMesh.material as THREE.MeshBasicMaterial
+    material.map = mark ?? null
+    material.needsUpdate = true
+    markMesh.visible = !!mark
+  }
+  const conferenceMap = conferenceLogoTexture(conferenceForTeam(team.id))
+  for (const logo of homeFieldRefs.conferenceLogos) {
+    const material = logo.material as THREE.MeshBasicMaterial
+    material.map = conferenceMap
+    material.needsUpdate = true
   }
 }
 
