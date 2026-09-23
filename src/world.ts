@@ -1862,7 +1862,7 @@ export function rebuildCrowd() {
   }
 
   for (const side of [-1, 1]) {
-    for (let row = 0; row < 19; row += 1) {
+    for (let row = 0; row < 24; row += 1) {
       const x = side * (32 + row * 1.16)
       const y = 0.5 + row * 0.75
       for (let seat = 0; seat < 58; seat += 1) {
@@ -1871,11 +1871,32 @@ export function rebuildCrowd() {
     }
   }
   for (const end of [1, -1]) {
-    for (let row = 0; row < 15; row += 1) {
+    for (let row = 0; row < 19; row += 1) {
       const z = end === 1 ? 21 + row * 1.2 : -105 - row * 1.2
       const y = 0.5 + row * 0.75
       for (let seat = 0; seat < 46; seat += 1) {
         addFan(-45 + seat * 2.0, y + 0.52, z - end * 1.2, crowdColor(), end === 1 ? Math.PI : 0)
+      }
+    }
+  }
+  // The upper deck: set back from the lower bowl behind a concourse gap and
+  // raked up steeper/higher, same as a real second tier. Kept sparser (fewer
+  // seats per row) since its rows are shorter than the lower bowl's.
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < 12; row += 1) {
+      const x = side * (63 + row * 1.35)
+      const y = 20 + row * 1.0
+      for (let seat = 0; seat < 53; seat += 1) {
+        addFan(x - side * 1.3, y + 0.52, -101 + seat * 2.08 + (row % 2) * 0.55, crowdColor(), -side * Math.PI / 2)
+      }
+    }
+  }
+  for (const end of [1, -1]) {
+    for (let row = 0; row < 9; row += 1) {
+      const z = end === 1 ? 45 + row * 1.35 : -129 - row * 1.35
+      const y = 20 + row * 1.0
+      for (let seat = 0; seat < 44; seat += 1) {
+        addFan(-42 + seat * 2.0, y + 0.52, z - end * 1.3, crowdColor(), end === 1 ? Math.PI : 0)
       }
     }
   }
@@ -1938,7 +1959,7 @@ export function createStadium() {
   // stadiums use to separate the lower bowl from the upper deck.
   const facadeRow = (row: number, fallback: number) => (row === 6 ? TEAMS.vikings.primary : row === 7 ? 0xf5c542 : fallback)
   for (const side of [-1, 1]) {
-    for (let row = 0; row < 19; row += 1) {
+    for (let row = 0; row < 24; row += 1) {
       const x = side * (32 + row * 1.16)
       const y = 0.5 + row * 0.75
       const seats = new THREE.Mesh(
@@ -1951,7 +1972,7 @@ export function createStadium() {
   }
 
   for (const end of [1, -1]) {
-    for (let row = 0; row < 15; row += 1) {
+    for (let row = 0; row < 19; row += 1) {
       const z = end === 1 ? 21 + row * 1.2 : -105 - row * 1.2
       const y = 0.5 + row * 0.75
       const seats = new THREE.Mesh(
@@ -1962,6 +1983,52 @@ export function createStadium() {
       world.add(seats)
     }
   }
+
+  // A second, upper-deck tier: set back from the lower bowl behind a
+  // concourse gap and raked up steeper/higher — the way a real stadium's
+  // upper bowl reads as a visually distinct, taller ring behind the lower
+  // one, rather than just more of the same rows.
+  const upperStandColors = [0x0c1526, 0x18223c, 0x202f52]
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < 12; row += 1) {
+      const x = side * (63 + row * 1.35)
+      const y = 20 + row * 1.0
+      const seats = new THREE.Mesh(
+        new THREE.BoxGeometry(2.5, 1.4, 112),
+        new THREE.MeshStandardMaterial({ color: upperStandColors[row % upperStandColors.length], roughness: 0.85 }),
+      )
+      seats.position.set(x, y, -47)
+      world.add(seats)
+    }
+  }
+  for (const end of [1, -1]) {
+    for (let row = 0; row < 9; row += 1) {
+      const z = end === 1 ? 45 + row * 1.35 : -129 - row * 1.35
+      const y = 20 + row * 1.0
+      const seats = new THREE.Mesh(
+        new THREE.BoxGeometry(96, 1.38, 2.5),
+        new THREE.MeshStandardMaterial({ color: upperStandColors[(row + 1) % upperStandColors.length], roughness: 0.85 }),
+      )
+      seats.position.set(0, y, z)
+      world.add(seats)
+    }
+  }
+  // Solid concourse support walls under the upper deck's front edge — without
+  // these the deck (starting at y=20) reads as a slab of fans floating in
+  // midair above open ground, especially behind the end zones where the
+  // lower bowl is short enough to expose the empty space underneath.
+  const riserMaterial = new THREE.MeshStandardMaterial({ color: 0x1b2436, roughness: 0.9 })
+  for (const side of [-1, 1]) {
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(21, 19.6, 114), riserMaterial)
+    riser.position.set(side * 70.5, 9.8, -47)
+    world.add(riser)
+  }
+  for (const end of [1, -1]) {
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(98, 19.6, 14), riserMaterial)
+    riser.position.set(0, 9.8, end === 1 ? 50.5 : -134.4)
+    world.add(riser)
+  }
+
   rebuildCrowd()
 
   // A glowing LED ribbon board runs the length of the lower bowl's front
@@ -1991,49 +2058,86 @@ export function createStadium() {
     world.add(mouth)
   }
 
+  // Outer shell sized to clear the new upper deck (reaches roughly x=±79,
+  // z=57/-141) with a margin, and tall enough for the deck's top row (~y=31).
   const outerWallMaterial = new THREE.MeshStandardMaterial({ color: 0x111c30, roughness: 0.88 })
-  for (const x of [-58, 58]) {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(2.6, 24, 168), outerWallMaterial)
-    wall.position.set(x, 9, -47)
+  for (const x of [-83, 83]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(2.6, 38, 208), outerWallMaterial)
+    wall.position.set(x, 17, -42)
     world.add(wall)
   }
-  for (const z of [46, -140]) {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(126, 24, 2.6), outerWallMaterial)
-    wall.position.set(0, 9, z)
+  for (const z of [64, -148]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(172, 38, 2.6), outerWallMaterial)
+    wall.position.set(0, 17, z)
     world.add(wall)
   }
 
   const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x17243a, metalness: 0.45, roughness: 0.5, side: THREE.DoubleSide })
   const trussMaterial = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.3 })
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(118, 1.2, 168), roofMaterial)
-  roof.position.set(0, 28, -47)
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(178, 1.4, 214), roofMaterial)
+  roof.position.set(0, 39, -42)
   world.add(roof)
   const skylight = new THREE.Mesh(
-    new THREE.PlaneGeometry(45, 94),
+    new THREE.PlaneGeometry(70, 140),
     new THREE.MeshStandardMaterial({ color: 0x6ea7c8, emissive: 0x163b58, emissiveIntensity: 0.7, transparent: true, opacity: 0.72, side: THREE.DoubleSide }),
   )
   skylight.rotation.x = Math.PI / 2
-  skylight.position.set(0, 25.35, -47)
+  skylight.position.set(0, 36.35, -42)
   world.add(skylight)
-  for (let z = -105; z <= 11; z += 16) {
-    const truss = new THREE.Mesh(new THREE.BoxGeometry(88, 0.32, 0.42), trussMaterial)
-    truss.position.set(0, 24.95, z)
+  // Thin dark seam bars over the skylight so it reads as panelled ETFE
+  // roofing (like the real thing) instead of one flat sheet of glass.
+  const seamMaterial = new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.6, fog: false })
+  for (let i = -3; i <= 3; i += 1) {
+    const seam = new THREE.Mesh(new THREE.BoxGeometry(70, 0.06, 0.12), seamMaterial)
+    seam.position.set(0, 36.37, -42 + i * 20)
+    world.add(seam)
+  }
+  for (let i = -4; i <= 4; i += 1) {
+    const seam = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 140), seamMaterial)
+    seam.position.set(i * 8.75, 36.37, -42)
+    world.add(seam)
+  }
+  for (let z = -138; z <= 56; z += 19) {
+    const truss = new THREE.Mesh(new THREE.BoxGeometry(150, 0.36, 0.46), trussMaterial)
+    truss.position.set(0, 38, z)
     world.add(truss)
     // A short diagonal brace off every other main truss for a more built,
     // trussed-roof look instead of a flat grid of straight bars.
-    if (((z + 105) / 16) % 2 === 0) {
-      for (const dx of [-22, 22]) {
-        const brace = new THREE.Mesh(new THREE.BoxGeometry(14, 0.24, 0.3), trussMaterial)
-        brace.position.set(dx, 23.7, z + 5)
+    if (Math.round((z + 138) / 19) % 2 === 0) {
+      for (const dx of [-32, 32]) {
+        const brace = new THREE.Mesh(new THREE.BoxGeometry(20, 0.26, 0.32), trussMaterial)
+        brace.position.set(dx, 36.5, z + 7)
         brace.rotation.y = dx < 0 ? 0.35 : -0.35
         world.add(brace)
       }
     }
   }
-  for (let x = -38; x <= 38; x += 19) {
-    const truss = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 126), trussMaterial)
-    truss.position.set(x, 24.95, -47)
+  for (let x = -64; x <= 64; x += 32) {
+    const truss = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.36, 200), trussMaterial)
+    truss.position.set(x, 38, -42)
     world.add(truss)
+  }
+
+  // A ring of purple-and-gold pennant flags along the roofline's long edges —
+  // the festive touch real stadiums add above the upper deck.
+  const flagPoleMaterial = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.6, roughness: 0.4 })
+  const flagColors = [TEAMS.vikings.primary, 0xf5c542]
+  for (let i = 0; i < 10; i += 1) {
+    const t = i / 9
+    const z = THREE.MathUtils.lerp(-138, 56, t)
+    for (const side of [-1, 1]) {
+      const x = side * 83
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6), flagPoleMaterial)
+      pole.position.set(x, 40.7, z)
+      world.add(pole)
+      const flag = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.1, 0.7),
+        new THREE.MeshStandardMaterial({ color: flagColors[i % 2], side: THREE.DoubleSide, roughness: 0.7 }),
+      )
+      flag.position.set(x + side * 0.6, 41.4, z)
+      flag.rotation.y = Math.PI / 2
+      world.add(flag)
+    }
   }
 
   createJumbotron()
@@ -2042,12 +2146,20 @@ export function createStadium() {
   const lampMaterial = new THREE.MeshStandardMaterial({ color: 0xfff7cc, emissive: 0xffd166, emissiveIntensity: 2.5 })
   for (const x of [-40, 40]) {
     for (const z of [-18, -76]) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 21, 10), poleMaterial)
-      pole.position.set(x, 13, z)
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.32, 24, 10), poleMaterial)
+      pole.position.set(x, 14.5, z)
       world.add(pole)
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.45, 0.8), lampMaterial)
-      lamp.position.set(x, 23.15, z)
-      world.add(lamp)
+      const catwalk = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.12, 0.5), poleMaterial)
+      catwalk.position.set(x, 25.9, z)
+      world.add(catwalk)
+      // A fanned-out bank of three lamp heads instead of one flat panel, the
+      // way real stadium light towers angle several heads across the field.
+      for (let i = -1; i <= 1; i += 1) {
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.4, 0.7), lampMaterial)
+        lamp.position.set(x + i * 1.6, 26.6, z)
+        lamp.rotation.y = i * 0.5
+        world.add(lamp)
+      }
     }
   }
 }
@@ -2153,10 +2265,29 @@ function createJumbotron() {
   updateScoreboard()
 }
 
-// The sky: a hazy sun low over the far end zone plus puffy clouds ringing the
-// bowl. Both use fog-exempt materials so distance doesn't wash them into the
-// backdrop, and the clouds drift slowly across in the animation loop.
+// The sky: a gradient dome behind a hazy sun low over the far end zone, plus
+// puffy clouds ringing the bowl. The dome and sun use fog-exempt materials so
+// distance doesn't wash them into the backdrop; the clouds drift slowly
+// across in the animation loop. Mostly glimpsed through the stadium's
+// skylight and the gap between the bowl walls and roof, so it reads as the
+// hazy outdoor light coming through a translucent stadium roof.
 export function createSky() {
+  const gradientCanvas = document.createElement('canvas')
+  gradientCanvas.width = 2
+  gradientCanvas.height = 256
+  const gradientCtx = gradientCanvas.getContext('2d')!
+  const gradient = gradientCtx.createLinearGradient(0, 0, 0, 256)
+  gradient.addColorStop(0, '#1f5fa8')
+  gradient.addColorStop(0.45, '#6ea9dd')
+  gradient.addColorStop(1, '#cfe6fb')
+  gradientCtx.fillStyle = gradient
+  gradientCtx.fillRect(0, 0, 2, 256)
+  const skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(380, 24, 16),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gradientCanvas), side: THREE.BackSide, fog: false, depthWrite: false }),
+  )
+  world.add(skyDome)
+
   const sun = new THREE.Group()
   const sunCore = new THREE.Mesh(
     new THREE.SphereGeometry(7, 24, 16),
@@ -2199,11 +2330,11 @@ export function createSky() {
     clouds.push(cloud)
   }
   // A band along the downfield horizon, framed by the open end of the stadium.
-  for (let i = 0; i < 7; i += 1) addCloud(randomBetween(-160, 160), randomBetween(22, 46), randomBetween(-270, -180), randomBetween(6, 11))
+  for (let i = 0; i < 9; i += 1) addCloud(randomBetween(-200, 200), randomBetween(22, 48), randomBetween(-320, -200), randomBetween(7, 13))
   // A band behind the player for when you spin the camera around.
-  for (let i = 0; i < 5; i += 1) addCloud(randomBetween(-160, 160), randomBetween(24, 50), randomBetween(150, 250), randomBetween(6, 10))
+  for (let i = 0; i < 7; i += 1) addCloud(randomBetween(-200, 200), randomBetween(24, 52), randomBetween(180, 300), randomBetween(7, 12))
   // High scattered puffs, seen overhead through the skylight.
-  for (let i = 0; i < 6; i += 1) addCloud(randomBetween(-100, 100), randomBetween(58, 92), randomBetween(-150, 60), randomBetween(7, 12))
+  for (let i = 0; i < 9; i += 1) addCloud(randomBetween(-130, 130), randomBetween(60, 100), randomBetween(-180, 80), randomBetween(8, 14))
 }
 
 // A single standing sideline figure: a benched player (with pads + helmet) or a
@@ -2732,7 +2863,7 @@ export function celebrateTouchdown() {
 // ---------------------------------------------------------------------------
 
 scene.background = new THREE.Color(0x9bc7ed)
-scene.fog = new THREE.Fog(0x9bc7ed, 35, 145)
+scene.fog = new THREE.Fog(0x9bc7ed, 35, 210)
 scene.add(new THREE.HemisphereLight(0xdbeafe, 0x0b5b2d, 2.5))
 const sun = new THREE.DirectionalLight(0xffffff, 3)
 sun.position.set(-20, 35, 15)
